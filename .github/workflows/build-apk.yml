@@ -3,8 +3,8 @@ name: Build Android APK
 on:
   push:
     branches:
-      - main      # Tên branch chính của bạn (nếu dùng 'master' thì đổi thành 'master')
-  workflow_dispatch: # Cho phép bấm nút "Run workflow" để build thủ công bất cứ lúc nào
+      - main
+  workflow_dispatch:
 
 jobs:
   build:
@@ -20,7 +20,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm' # Đổi thành 'yarn' hoặc 'pnpm' nếu bạn dùng trình quản lý khác
+          cache: 'npm'
 
       # 3. Cài đặt Java (JDK 17)
       - name: Setup Java JDK
@@ -33,21 +33,25 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # 5. Cài đặt các thư viện Node modules
+      # 5. Cài đặt dependencies
       - name: Install dependencies
         run: npm install
 
-      # 6. Cấp quyền thực thi cho gradlew
+      # 6. Tự động tạo thư mục Android chuẩn cho Expo
+      - name: Prebuild Android project
+        run: npx expo prebuild --platform android
+
+      # 7. Cấp quyền thực thi cho gradlew
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 7. Chạy lệnh Build APK Release
+      # 8. Build APK Release
       - name: Build Android Release APK
         run: |
           cd android
           ./gradlew assembleRelease
 
-      # 8. Upload file APK lên GitHub để tải về
+      # 9. Upload file APK lên Artifacts
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
