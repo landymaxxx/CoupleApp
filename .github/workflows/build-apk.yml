@@ -1,0 +1,55 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main      # Tên branch chính của bạn (nếu dùng 'master' thì đổi thành 'master')
+  workflow_dispatch: # Cho phép bấm nút "Run workflow" để build thủ công bất cứ lúc nào
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Lấy code từ repo
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Cài đặt Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm' # Đổi thành 'yarn' hoặc 'pnpm' nếu bạn dùng trình quản lý khác
+
+      # 3. Cài đặt Java (JDK 17)
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+
+      # 4. Cài đặt Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 5. Cài đặt các thư viện Node modules
+      - name: Install dependencies
+        run: npm install
+
+      # 6. Cấp quyền thực thi cho gradlew
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      # 7. Chạy lệnh Build APK Release
+      - name: Build Android Release APK
+        run: |
+          cd android
+          ./gradlew assembleRelease
+
+      # 8. Upload file APK lên GitHub để tải về
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
