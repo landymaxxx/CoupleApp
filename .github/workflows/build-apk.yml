@@ -37,22 +37,23 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 5. Cài đặt Android SDK
+      # 5. Cài đặt Android SDK (đã tự chấp nhận licenses, không cần bước thủ công nữa)
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
           accept-android-sdk-licenses: true
 
-      # 6. Tự động chấp nhận tất cả Android SDK Licenses (Đa đường dẫn)
-      - name: Accept Android SDK Licenses
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          yes | $ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager --licenses || true
-          yes | $ANDROID_HOME/tools/bin/sdkmanager --licenses || true
-
-      # 7. Prebuild để sinh ra thư mục native /android
+      # 6. Prebuild để sinh ra thư mục native /android
       - name: Prebuild Android project
         run: npx expo prebuild --platform android --no-install
+
+      # 7. Cache ccache để tái sử dụng object file đã compile của native code
+      #    (Reanimated, Worklets, expo-modules-core...) giữa các lần build
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ${{ runner.os }}-ccache-android
+          max-size: 500M
 
       # 8. Khởi tạo & Cache Gradle
       - name: Setup Gradle Cache
@@ -66,6 +67,8 @@ jobs:
 
       # 10. Build APK release (Thêm --no-daemon để tiết kiệm RAM trên CI)
       - name: Build Android Release APK
+        env:
+          NDK_CCACHE: ccache
         run: |
           cd android
           ./gradlew assembleRelease \
