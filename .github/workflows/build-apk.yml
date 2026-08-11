@@ -26,27 +26,29 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      # 3. Cài đặt Java JDK
+      # 3. Cài đặt dependencies (Đưa lên trước để chuẩn bị môi trường JS)
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. Cài đặt Java JDK 17
       - name: Setup Java JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 4. Cài đặt Android SDK & Bắt buộc tự động nhận License
+      # 5. Cài đặt Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
           accept-android-sdk-licenses: true
 
-      # 5. [ĐÃ SỬA LỖI] Tự động nhấn "y" cho tất cả License của Android SDK
+      # 6. Tự động chấp nhận tất cả Android SDK Licenses (Đa đường dẫn)
       - name: Accept Android SDK Licenses
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-
-      # 6. Cài đặt dependencies (npm)
-      - name: Install dependencies
-        run: npm ci
+          yes | $ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager --licenses || true
+          yes | $ANDROID_HOME/tools/bin/sdkmanager --licenses || true
 
       # 7. Prebuild để sinh ra thư mục native /android
       - name: Prebuild Android project
@@ -62,7 +64,7 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 10. Build APK release
+      # 10. Build APK release (Thêm --no-daemon để tiết kiệm RAM trên CI)
       - name: Build Android Release APK
         run: |
           cd android
@@ -70,6 +72,7 @@ jobs:
             -PreactNativeArchitectures=arm64-v8a \
             -x lintVitalAnalyzeRelease \
             -x lintVitalReportRelease \
+            --no-daemon \
             --build-cache
 
       # 11. Upload file APK kết quả
