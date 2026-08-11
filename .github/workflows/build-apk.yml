@@ -26,36 +26,43 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      # 3. Cài đặt node_modules trước
-      - name: Install dependencies
-        run: npm ci
-
-      # 4. Prebuild để sinh ra thư mục native /android (Bắt buộc chạy trước Gradle)
-      - name: Prebuild Android project
-        run: npx expo prebuild --platform android --no-install
-
-      # 5. Cài đặt Java JDK
+      # 3. Cài đặt Java JDK
       - name: Setup Java JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 6. Cài đặt Android SDK & Tự động chấp nhận Licenses an toàn (Thay thế lệnh yes | sdkmanager)
+      # 4. Cài đặt Android SDK & Bắt buộc tự động nhận License
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
 
-      # 7. Khởi tạo & Cache Gradle (Chạy SAU khi thư mục android/ đã được tạo ra)
+      # 5. [ĐÃ SỬA LỖI] Tự động nhấn "y" cho tất cả License của Android SDK
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      # 6. Cài đặt dependencies (npm)
+      - name: Install dependencies
+        run: npm ci
+
+      # 7. Prebuild để sinh ra thư mục native /android
+      - name: Prebuild Android project
+        run: npx expo prebuild --platform android --no-install
+
+      # 8. Khởi tạo & Cache Gradle
       - name: Setup Gradle Cache
         uses: gradle/actions/setup-gradle@v3
         with:
           cache-read-only: false
 
-      # 8. Cấp quyền thực thi cho gradlew
+      # 9. Cấp quyền thực thi cho gradlew
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 9. Build APK release
+      # 10. Build APK release
       - name: Build Android Release APK
         run: |
           cd android
@@ -65,7 +72,7 @@ jobs:
             -x lintVitalReportRelease \
             --build-cache
 
-      # 10. Upload file APK kết quả
+      # 11. Upload file APK kết quả
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
