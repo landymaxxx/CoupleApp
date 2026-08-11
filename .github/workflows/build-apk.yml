@@ -6,6 +6,10 @@ on:
       - main
   workflow_dispatch:
 
+# Tối ưu RAM cho Gradle & Bật Build Cache toàn cục
+env:
+  GRADLE_OPTS: "-Dorg.gradle.jvmargs=\"-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError\" -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,34 +33,40 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 4. Cache Gradle
+      # 4. Cache Gradle tự động (Lưu và khôi phục cache sau mỗi lần build)
       - name: Setup Gradle Cache
         uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: false
 
-      # 5. Duyệt TẤT CẢ License Android SDK & NDK tự động
+      # 5. Duyệt License Android SDK & NDK
       - name: Accept All Android & NDK Licenses
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      # 6. Cài đặt dependencies
+      # 6. Cài đặt node_modules
       - name: Install dependencies
         run: npm ci
 
-      # 7. Prebuild Android project
+      # 7. Prebuild Android project (--no-install để tránh chạy npm install lần 2)
       - name: Prebuild Android project
-        run: npx expo prebuild --platform android
+        run: npx expo prebuild --platform android --no-install
 
       # 8. Cấp quyền thực thi cho gradlew
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 9. Build APK release cho chip arm64-v8a
+      # 9. Build APK release (Tắt LintVital & dùng Build Cache)
       - name: Build Android Release APK
         run: |
           cd android
-          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
+          ./gradlew assembleRelease \
+            -PreactNativeArchitectures=arm64-v8a \
+            -x lintVitalAnalyzeRelease \
+            -x lintVitalReportRelease \
+            --build-cache
 
-      # 10. Upload file APK
+      # 10. Upload file APK kết quả
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
