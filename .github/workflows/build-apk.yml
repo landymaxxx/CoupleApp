@@ -15,45 +15,49 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Cài đặt Node.js
+      # 2. Cài đặt Node.js + Cache npm
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
-      # 3. Cài đặt Java (JDK 17)
+      # 3. Cài đặt Java JDK
       - name: Setup Java JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'microsoft'
           java-version: '17'
 
-      # 4. Cài đặt Android SDK
+      # 4. Tự động Cache Gradle (Giúp tăng tốc từ lần build sau)
+      - name: Setup Gradle Cache
+        uses: gradle/actions/setup-gradle@v3
+
+      # 5. Cài đặt Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # 5. Cài đặt dependencies
+      # 6. Cài đặt dependencies
       - name: Install dependencies
         run: npm install
 
-      # 6. Prebuild Android project
+      # 7. Prebuild Android project
       - name: Prebuild Android project
         run: npx expo prebuild --platform android
 
-      # 7. Cấp quyền thực thi cho gradlew
+      # 8. Cấp quyền thực thi cho gradlew
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 8. Build APK
+      # 9. Build APK - CHỈ biên dịch cho chip arm64-v8a (Siêu nhanh & Siêu nhẹ)
       - name: Build Android Release APK
         run: |
           cd android
-          ./gradlew assembleRelease -PenableSeparateBuildPerCPUArchitecture=true
+          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
 
-      # 9. Upload TẤT CẢ file APK tìm thấy trong thư mục release
+      # 10. Upload file APK
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apks
+          name: app-arm64-release
           path: android/app/build/outputs/apk/release/*.apk
