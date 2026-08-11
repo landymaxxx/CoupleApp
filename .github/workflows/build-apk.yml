@@ -22,27 +22,23 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      # 3. Cài đặt Java JDK (Dùng temurin để tận dụng Java pre-installed sẵn trên GitHub Runner)
+      # 3. Cài đặt Java JDK
       - name: Setup Java JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 4. Tự động Cache Gradle (Tăng tốc vượt trội từ lần build thứ 2)
+      # 4. Cache Gradle
       - name: Setup Gradle Cache
         uses: gradle/actions/setup-gradle@v3
 
-      # 5. Duyệt License Android SDK siêu tốc (Thay thế cho android-actions/setup-android bị chậm)
-      - name: Accept Android SDK Licenses
+      # 5. Duyệt TẤT CẢ License Android SDK & NDK tự động
+      - name: Accept All Android & NDK Licenses
         run: |
-          mkdir -p $ANDROID_HOME/licenses
-          echo "2433373574b44d5d828864828680b92a1e065f4f" > $ANDROID_HOME/licenses/android-sdk-license
-          echo "84831b9409646a578f447d11500a00d13887030f" >> $ANDROID_HOME/licenses/android-sdk-license
-          echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> $ANDROID_HOME/licenses/android-sdk-license
-          echo "2433373574b44d5d828864828680b92a1e065f4f" > $ANDROID_HOME/licenses/android-sdk-preview-license
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      # 6. Cài đặt dependencies (Dùng npm ci thay vì npm install để cài sạch & nhanh hơn trên CI)
+      # 6. Cài đặt dependencies
       - name: Install dependencies
         run: npm ci
 
@@ -54,7 +50,7 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 9. Build APK - CHỈ biên dịch cho chip arm64-v8a (Thêm --no-daemon để tối ưu tài nguyên CI)
+      # 9. Build APK release cho chip arm64-v8a
       - name: Build Android Release APK
         run: |
           cd android
