@@ -1,18 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
   StyleSheet,
-  View,
   Text,
   TextInput,
   TouchableOpacity,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  Image,
+  View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { ref, onValue, push } from 'firebase/database';
-import { db, auth } from '../../firebase';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { onValue, push, ref, remove } from 'firebase/database';
+import { auth, db } from '../../firebase';
+import { useTheme } from '../context/ThemeContext';
 import { UserItem } from './SearchUsersModal';
 
 interface Message {
@@ -36,19 +38,25 @@ interface ChatTabProps {
 }
 
 export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
+  const { bgColor } = useTheme();
+  const insets = useSafeAreaInsets();
+
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
-  
-  // Danh sách các cuộc trò chuyện
   const [chatList, setChatList] = useState<ChatRoom[]>([]);
-  
-  // Lưu ảnh đại diện của bản thân
   const [myPfp, setMyPfp] = useState<string | undefined>(undefined);
 
+  const flatListRef = useRef<FlatList>(null);
   const currentUser = auth.currentUser;
 
-  // 1. Lấy thông tin & ảnh đại diện của bản thân
+  const formatTime = (timestamp: number) => {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  // 1. Lấy Avatar bản thân
   useEffect(() => {
     if (!currentUser) return;
     const myUserRef = ref(db, `users/${currentUser.uid}`);
@@ -60,12 +68,13 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
     return () => unsubscribeMyUser();
   }, [currentUser]);
 
-  // 2. Tải danh sách bạn bè + Con bot để hiển thị ở trang chọn Chat
+  // 2. Lấy danh sách cuộc trò chuyện
   useEffect(() => {
     if (!currentUser) return;
 
+    // 🔥 SỬA TẠI ĐÂY: Tạo ID phòng chat Bot riêng biệt theo UID của từng tài khoản
     const botRoom: ChatRoom = {
-      id: 'bot_chat',
+      id: `bot_${currentUser.uid}`,
       name: 'Test Bot 🤖',
       isBot: true,
     };
@@ -97,7 +106,7 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
     return () => unsubscribeFriends();
   }, [currentUser]);
 
-  // 3. Khi chuyển sang chat với targetUser từ Tìm kiếm hoặc Danh sách bạn bè
+  // 3. Chọn phòng chat
   useEffect(() => {
     if (targetUser && currentUser) {
       const roomId = [currentUser.uid, targetUser.id].sort().join('_');
@@ -135,44 +144,67 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
   const handleSendMessage = () => {
     if (!inputText.trim() || !selectedRoom || !currentUser) return;
     const roomRef = ref(db, `messages/${selectedRoom.id}`);
+    const textToSend = inputText.trim();
+
+    setInputText('');
 
     push(roomRef, {
-      text: inputText.trim(),
+      text: textToSend,
       createdAt: Date.now(),
       senderId: currentUser.uid,
     });
 
-    setInputText('');
-  };
-
-  // Quay lại danh sách
-  const handleBack = () => {
-    setSelectedRoom(null);
-    if (onClearTarget) {
-      onClearTarget();
+    if (selectedRoom.isBot) {
+      setTimeout(() => {
+        push(roomRef, {
+          text: `🤖 Tôi đã nhận được tin nhắn: "${textToSend}"`,
+          createdAt: Date.now(),
+          senderId: 'bot_id',
+          isBot: true,
+        });
+      }, 800);
     }
   };
 
-  // MÀN HÌNH 1: Danh sách các cuộc trò chuyện
+  // Xóa lịch sử chat
+  const handleClearHistory = () => {
+    if (!selectedRoom) return;
+
+    Alert.alert(
+      'Xóa cuộc trò chuyện',
+      `Bạn có chắc muốn xóa tất cả tin nhắn với ${selectedRoom.name}?`,
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Xóa sạch',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await remove(ref(db, `messages/${selectedRoom.id}`));
+            } catch (error: any) {
+              Alert.alert('Lỗi', error.message);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleBack = () => {
+    setSelectedRoom(null);
+    if (onClearTarget) onClearTarget();
+  };
+
+  // ================= MÀN HÌNH DANH SÁCH CUỘC TRÒ CHUYỆN =================
   if (!selectedRoom) {
     return (
-      <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Trò Chuyện 💬</Text>
-        </View>
-
+      <View style={[styles.container, { backgroundColor: bgColor }]}>
         <FlatList
           data={chatList}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ padding: 12 }}
-          ListHeaderComponent={
-            <Text style={styles.sectionHeaderTitle}>Danh sách trò chuyện</Text>
-          }
           renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.chatListItem}
-              onPress={() => setSelectedRoom(item)}
-            >
+            <TouchableOpacity style={styles.chatListItem} onPress={() => setSelectedRoom(item)}>
               {item.isBot ? (
                 <View style={[styles.avatarCircle, { backgroundColor: '#4A90E2' }]}>
                   <Text style={styles.avatarText}>🤖</Text>
@@ -193,19 +225,18 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
                   {item.isBot ? 'Bot tự động phản hồi' : 'Nhấn để trò chuyện'}
                 </Text>
               </View>
-
               <Text style={styles.arrowText}>›</Text>
             </TouchableOpacity>
           )}
         />
-      </SafeAreaView>
+      </View>
     );
   }
 
-  // MÀN HÌNH 2: Giao diện chat 1-1
+  // ================= MÀN HÌNH CHAT CHI TIẾT =================
   return (
-    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
-      {/* Header cuộc trò chuyện (Có Avatar) */}
+    <View style={[styles.container, { backgroundColor: bgColor }]}>
+      {/* Header nhỏ gọn */}
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
           <Text style={styles.backBtnText}>‹ Quay lại</Text>
@@ -228,30 +259,31 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
           <Text style={styles.headerTitle}>{selectedRoom.name}</Text>
         </View>
 
-        <View style={{ width: 50 }} />
+        <TouchableOpacity onPress={handleClearHistory} style={styles.clearBtn}>
+          <Text style={{ fontSize: 16 }}>🗑️</Text>
+        </TouchableOpacity>
       </View>
 
+      {/* Khung tin nhắn + Bàn phím */}
       <KeyboardAvoidingView
-        style={styles.chatContainer}
+        style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
       >
-        {/* Danh sách tin nhắn (Có Avatar từng người) */}
         <FlatList
+          ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
+          style={{ flex: 1 }}
           contentContainerStyle={styles.messageList}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
           renderItem={({ item }) => {
             const isMe = item.senderId === currentUser?.uid;
             return (
-              <View
-                style={[
-                  styles.messageRow,
-                  isMe ? styles.userRow : styles.otherRow,
-                ]}
-              >
-                {/* Avatar đối phương (bên trái) */}
-                {!isMe && (
-                  selectedRoom.isBot ? (
+              <View style={[styles.messageRow, isMe ? styles.userRow : styles.otherRow]}>
+                {!isMe &&
+                  (selectedRoom.isBot ? (
                     <View style={[styles.msgAvatarCircle, { backgroundColor: '#4A90E2' }]}>
                       <Text style={styles.msgAvatarText}>🤖</Text>
                     </View>
@@ -263,24 +295,19 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
                         {selectedRoom.name ? selectedRoom.name.charAt(0).toUpperCase() : 'U'}
                       </Text>
                     </View>
-                  )
-                )}
+                  ))}
 
-                {/* Bong bóng tin nhắn */}
-                <View
-                  style={[
-                    styles.messageBubble,
-                    isMe ? styles.userBubble : styles.otherBubble,
-                  ]}
-                >
-                  <Text style={isMe ? styles.userText : styles.otherText}>
-                    {item.text}
+                <View style={{ maxWidth: '78%' }}>
+                  <View style={[styles.messageBubble, isMe ? styles.userBubble : styles.otherBubble]}>
+                    <Text style={isMe ? styles.userText : styles.otherText}>{item.text}</Text>
+                  </View>
+                  <Text style={[styles.timeText, isMe ? { textAlign: 'right' } : { textAlign: 'left' }]}>
+                    {formatTime(item.createdAt)}
                   </Text>
                 </View>
 
-                {/* Avatar của tôi (bên phải) */}
-                {isMe && (
-                  myPfp ? (
+                {isMe &&
+                  (myPfp ? (
                     <Image source={{ uri: myPfp }} style={styles.msgAvatar} />
                   ) : (
                     <View style={styles.msgAvatarCircle}>
@@ -288,15 +315,14 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
                         {currentUser?.displayName ? currentUser.displayName.charAt(0).toUpperCase() : 'Tôi'}
                       </Text>
                     </View>
-                  )
-                )}
+                  ))}
               </View>
             );
           }}
         />
 
-        {/* Ô nhập tin nhắn */}
-        <View style={styles.inputContainer}>
+        {/* Thanh Input dính sát mép dưới */}
+        <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 8) }]}>
           <TextInput
             style={styles.input}
             placeholder="Nhập tin nhắn..."
@@ -309,75 +335,41 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
-  },
-  header: {
-    padding: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderColor: '#EEEEEE',
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderColor: '#EEEEEE',
   },
-  headerTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: 8,
-  },
+  headerTitleContainer: { flexDirection: 'row', alignItems: 'center' },
+  headerAvatar: { width: 28, height: 28, borderRadius: 14, marginRight: 8 },
   headerAvatarCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: '#FF4B4B',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 8,
   },
-  headerAvatarText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: 'bold',
-    color: '#333333',
-  },
-  sectionHeaderTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#888',
-    marginBottom: 10,
-    marginTop: 5,
-  },
-  backBtn: {
-    padding: 4,
-  },
-  backBtnText: {
-    color: '#FF4B4B',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  headerAvatarText: { color: '#FFF', fontWeight: 'bold', fontSize: 13 },
+  headerTitle: { fontSize: 15, fontWeight: 'bold', color: '#333' },
+  backBtn: { paddingVertical: 4, paddingRight: 8 },
+  backBtnText: { color: '#FF4B4B', fontSize: 14, fontWeight: '600' },
+  clearBtn: { padding: 4 },
+
   chatListItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -385,111 +377,70 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 12,
     marginBottom: 8,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
   },
-  listAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    marginRight: 12,
-  },
+  listAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12 },
   avatarCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#FF4B4B',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
-  avatarText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 18,
-  },
-  chatListItemInfo: {
-    flex: 1,
-  },
-  chatListItemName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  chatListItemSub: {
-    fontSize: 13,
-    color: '#888',
-    marginTop: 2,
-  },
-  arrowText: {
-    fontSize: 22,
-    color: '#CCC',
-    fontWeight: 'bold',
-  },
-  chatContainer: {
-    flex: 1,
-  },
+  avatarText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
+  chatListItemInfo: { flex: 1 },
+  chatListItemName: { fontSize: 15, fontWeight: 'bold', color: '#333' },
+  chatListItemSub: { fontSize: 12, color: '#888', marginTop: 2 },
+  arrowText: { fontSize: 18, color: '#CCC' },
+
   messageList: {
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   messageRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  userRow: {
-    justifyContent: 'flex-end',
-  },
-  otherRow: {
-    justifyContent: 'flex-start',
-  },
-  msgAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginHorizontal: 6,
-  },
+  userRow: { justifyContent: 'flex-end' },
+  otherRow: { justifyContent: 'flex-start' },
+
+  msgAvatar: { width: 26, height: 26, borderRadius: 13, marginHorizontal: 4 },
   msgAvatarCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: '#FF4B4B',
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 6,
+    marginHorizontal: 4,
   },
-  msgAvatarText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 13,
-  },
+  msgAvatarText: { color: '#FFF', fontWeight: 'bold', fontSize: 11 },
+
   messageBubble: {
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 16,
-    maxWidth: '70%',
   },
   userBubble: {
     backgroundColor: '#FF4B4B',
     borderBottomRightRadius: 2,
   },
   otherBubble: {
-    backgroundColor: '#E9ECEF',
+    backgroundColor: '#FFFFFF',
     borderBottomLeftRadius: 2,
+    borderWidth: 1,
+    borderColor: '#EFEFEF',
   },
-  userText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-  },
-  otherText: {
-    color: '#212529',
-    fontSize: 15,
-  },
+  userText: { color: '#FFFFFF', fontSize: 14, lineHeight: 18 },
+  otherText: { color: '#212529', fontSize: 14, lineHeight: 18 },
+  timeText: { fontSize: 9, color: '#A0A0A0', marginTop: 2, marginHorizontal: 2 },
+
   inputContainer: {
     flexDirection: 'row',
-    padding: 10,
+    paddingHorizontal: 10,
+    paddingTop: 8,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderColor: '#EEEEEE',
@@ -497,23 +448,20 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    backgroundColor: '#F1F3F5',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: '#333333',
+    backgroundColor: '#F3F3F3',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    height: 36,
+    fontSize: 14,
+    color: '#333',
   },
   sendButton: {
     backgroundColor: '#FF4B4B',
-    borderRadius: 20,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    marginLeft: 8,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginLeft: 6,
   },
-  sendButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 15,
-  },
+  sendButtonText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 13 },
 });

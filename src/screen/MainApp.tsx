@@ -1,7 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
-import { signOut } from 'firebase/auth';
-import { onValue, ref, remove, update } from 'firebase/database';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,15 +12,28 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { signOut } from 'firebase/auth';
+import { onValue, ref, remove, update } from 'firebase/database';
 import { auth, db } from '../../firebase';
 
+// 📲 Import cho Widget
+import { requestWidgetUpdate } from 'react-native-android-widget';
+import { LoverWidget } from '../widgets/LoverWidget';
+
+// Components & Context
+import ThemePicker from '../components/ThemePicker';
+import { useTheme } from '../context/ThemeContext';
 import ChatTab from '../components/ChatTab';
 import DrawTab from '../components/DrawTab';
 import SearchUsersModal, { UserItem } from '../components/SearchUsersModal';
+import LoverModal from '../components/LoverModal';
 
 interface UserProfile {
   username?: string;
   pfp?: string;
+  email?: string;
+  loverId?: string;
+  loveStartDate?: string;
 }
 
 interface Friend {
@@ -33,44 +44,88 @@ interface Friend {
 }
 
 export default function MainApp() {
+  const { bgColor } = useTheme();
+
   const [activeTab, setActiveTab] = useState<'chat' | 'draw'>('chat');
 
-  // State quản lý Modal Thông tin tài khoản
+  // State quản lý các Modal
   const [isModalVisible, setIsModalVisible] = useState(false);
-
-  // State quản lý Modal Tìm kiếm người dùng
   const [isSearchVisible, setIsSearchVisible] = useState(false);
+  const [isLoverModalVisible, setIsLoverModalVisible] = useState(false);
 
-  // State lưu người dùng được chọn để nhắn tin 1-1
+  // State chat & dữ liệu
   const [targetChatUser, setTargetChatUser] = useState<UserItem | null>(null);
-
   const [userData, setUserData] = useState<UserProfile | null>(null);
+  const [partnerData, setPartnerData] = useState<Friend | null>(null);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [updatingPfp, setUpdatingPfp] = useState(false);
 
   const currentUser = auth.currentUser;
 
-  // Lấy dữ liệu cá nhân & danh sách bạn bè thực sự từ Firebase Database
+  // 🧮 Hàm tính số ngày bên nhau
+  const calculateDaysTogether = (startDateStr?: string) => {
+    if (!startDateStr) return 0;
+    const start = new Date(startDateStr).getTime();
+    const now = new Date().getTime();
+    const diffTime = Math.abs(now - start);
+    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  // 🎧 Lắng nghe thông tin người dùng & Bạn đời & Danh sách bạn bè
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser?.uid) return;
 
     // 1. Lắng nghe thông tin bản thân
     const userRef = ref(db, `users/${currentUser.uid}`);
+    let unsubscribePartner: (() => void) | null = null;
+
     const unsubscribeUser = onValue(userRef, (snapshot) => {
       if (snapshot.exists()) {
-        setUserData(snapshot.val());
+        const val: UserProfile = snapshot.val() || {};
+        setUserData(val);
+
+        // Nếu người dùng có loverId -> Lắng nghe thông tin Nửa kia
+        if (val.loverId) {
+          const partnerRef = ref(db, `users/${val.loverId}`);
+          if (unsubscribePartner) unsubscribePartner();
+
+          unsubscribePartner = onValue(partnerRef, (partnerSnap) => {
+            if (partnerSnap.exists()) {
+              setPartnerData({
+                id: val.loverId!,
+                ...partnerSnap.val(),
+              });
+            } else {
+              setPartnerData(null);
+            }
+          });
+        } else {
+          setPartnerData(null);
+          if (unsubscribePartner) {
+            unsubscribePartner();
+            unsubscribePartner = null;
+          }
+        }
       }
     });
 
-    // 2. Lắng nghe danh sách bạn bè từ node `friends/${currentUser.uid}`
+    // 2. Lắng nghe danh sách bạn bè
     const friendsRef = ref(db, `friends/${currentUser.uid}`);
     const usersRef = ref(db, 'users');
+    let unsubscribeUsers: (() => void) | null = null;
 
     const unsubscribeFriends = onValue(friendsRef, (friendsSnap) => {
       const friendsData = friendsSnap.val() || {};
       const friendIds = Object.keys(friendsData);
 
-      onValue(usersRef, (usersSnap) => {
+      if (unsubscribeUsers) unsubscribeUsers();
+
+      if (friendIds.length === 0) {
+        setFriends([]);
+        return;
+      }
+
+      unsubscribeUsers = onValue(usersRef, (usersSnap) => {
         const usersData = usersSnap.val() || {};
         const list: Friend[] = friendIds
           .filter((id) => usersData[id])
@@ -87,32 +142,65 @@ export default function MainApp() {
     return () => {
       unsubscribeUser();
       unsubscribeFriends();
+      if (unsubscribePartner) unsubscribePartner();
+      if (unsubscribeUsers) unsubscribeUsers();
     };
-  }, [currentUser]);
+  }, [currentUser?.uid]);
+
+  // 🔥 3. LẮNG NGHE HÌNH VẼ ĐƯỢC GỬI TỚI ĐỂ CẬP NHẬT WIDGET
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+
+    const myLoverDrawingRef = ref(db, `loverDrawings/${currentUser.uid}`);
+    const unsubscribeLoverDrawing = onValue(myLoverDrawingRef, async (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        if (data?.imageUri) {
+          try {
+            await requestWidgetUpdate({
+              widgetName: 'LoverWidget',
+              renderWidget: () => (
+                <LoverWidget imageUri={data.imageUri} senderName={data.senderName} />
+              ),
+              widgetNotFound: () => {
+                // Widget chưa được kéo ra màn hình chính
+              },
+            });
+          } catch (e) {
+            console.log('Cập nhật widget thất bại:', e);
+          }
+        }
+      }
+    });
+
+    return () => {
+      unsubscribeLoverDrawing();
+    };
+  }, [currentUser?.uid]);
 
   // Hàm Đổi Ảnh Đại Diện (PFP)
   const handleChangePfp = async () => {
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: 'images' as any,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.2,
-      base64: true,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.2,
+        base64: true,
+      });
 
-    if (!result.canceled && result.assets[0].base64 && currentUser) {
-      const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
-      setUpdatingPfp(true);
-      try {
+      if (!result.canceled && result.assets?.[0]?.base64 && currentUser) {
+        const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        setUpdatingPfp(true);
         await update(ref(db, `users/${currentUser.uid}`), {
           pfp: base64Image,
         });
         Alert.alert('Thành công', 'Đã cập nhật ảnh đại diện mới!');
-      } catch (error: any) {
-        Alert.alert('Lỗi', error.message);
-      } finally {
-        setUpdatingPfp(false);
       }
+    } catch (error: any) {
+      Alert.alert('Lỗi', error?.message || 'Không thể cập nhật ảnh');
+    } finally {
+      setUpdatingPfp(false);
     }
   };
 
@@ -133,7 +221,7 @@ export default function MainApp() {
               await remove(ref(db, `friends/${friend.id}/${currentUser.uid}`));
               Alert.alert('Thành công', `Đã hủy kết bạn với ${friend.username}`);
             } catch (error: any) {
-              Alert.alert('Lỗi', error.message);
+              Alert.alert('Lỗi', error?.message || 'Không thể xóa bạn bè');
             }
           },
         },
@@ -141,14 +229,14 @@ export default function MainApp() {
     );
   };
 
-  // Hàm chuyển sang chat trực tiếp với bạn bè từ trang danh sách bạn bè
-  const handleChatWithFriend = (friend: Friend) => {
+  // Hàm chuyển sang chat trực tiếp
+  const handleChatWithUser = (user: Friend | UserItem) => {
     setIsModalVisible(false);
     setTargetChatUser({
-      id: friend.id,
-      username: friend.username,
-      pfp: friend.pfp,
-      email: friend.email,
+      id: user.id,
+      username: user.username,
+      pfp: user.pfp,
+      email: user.email,
     });
     setActiveTab('chat');
   };
@@ -168,11 +256,21 @@ export default function MainApp() {
     ]);
   };
 
+  const daysTogether = calculateDaysTogether(userData?.loveStartDate);
+
   return (
-    <SafeAreaView style={styles.container}>
-      {/* 1. Header chính */}
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: bgColor }]}
+      edges={['top', 'left', 'right']}
+    >
+      {/* Header chính */}
       <View style={styles.appHeader}>
-        <Text style={styles.appTitle}>Landy and Panda 💕</Text>
+        <View style={styles.headerTitleGroup}>
+          <Text style={styles.appTitle}>Landy & Panda 💕</Text>
+          {partnerData && (
+            <Text style={styles.headerDaysCount}>❤️ {daysTogether} ngày bên nhau</Text>
+          )}
+        </View>
 
         <View style={styles.headerRightActions}>
           <TouchableOpacity
@@ -201,7 +299,7 @@ export default function MainApp() {
         </View>
       </View>
 
-      {/* 2. Thanh chuyển Tab */}
+      {/* Thanh chuyển Tab */}
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={[
@@ -238,17 +336,17 @@ export default function MainApp() {
         </TouchableOpacity>
       </View>
 
-      {/* 3. Nội dung Tab đang chọn */}
+      {/* Nội dung Tab đang chọn */}
       {activeTab === 'chat' ? (
         <ChatTab
           targetUser={targetChatUser}
           onClearTarget={() => setTargetChatUser(null)}
         />
       ) : (
-        <DrawTab />
+        <DrawTab loverId={userData?.loverId} />
       )}
 
-      {/* 4. MODAL THÔNG TIN TÀI KHOẢN & DANH SÁCH BẠN BÈ */}
+      {/* MODAL THÔNG TIN TÀI KHOẢN & BẠN ĐỜI */}
       <Modal
         visible={isModalVisible}
         animationType="slide"
@@ -265,7 +363,7 @@ export default function MainApp() {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Profile info */}
+              {/* Profile cá nhân */}
               <View style={styles.profileSection}>
                 <View style={styles.largeAvatarContainer}>
                   {userData?.pfp ? (
@@ -303,7 +401,73 @@ export default function MainApp() {
 
               <View style={styles.divider} />
 
-              {/* Danh sách Bạn Bè với nút Chat & Hủy kết bạn */}
+              {/* KHUNG THÔNG TIN BẠN ĐỜI */}
+              <View style={styles.partnerSection}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={styles.sectionTitle}>Nửa kia của tôi 💕</Text>
+                  <TouchableOpacity 
+                    onPress={() => {
+                      setIsModalVisible(false);
+                      setIsLoverModalVisible(true);
+                    }}
+                  >
+                    <Text style={{ color: '#FF4B4B', fontSize: 12, fontWeight: 'bold' }}>⚙️ Quản lý</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {partnerData ? (
+                  <View style={styles.partnerCard}>
+                    {partnerData.pfp ? (
+                      <Image
+                        source={{ uri: partnerData.pfp }}
+                        style={styles.partnerAvatar}
+                      />
+                    ) : (
+                      <View style={styles.partnerAvatarPlaceholder}>
+                        <Text style={styles.partnerAvatarLetter}>
+                          {partnerData.username?.charAt(0).toUpperCase() || '?'}
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.partnerName}>{partnerData.username}</Text>
+                      <Text style={styles.partnerDaysText}>
+                        💖 Đã bên nhau {daysTogether} ngày
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.partnerChatBtn}
+                      onPress={() => handleChatWithUser(partnerData)}
+                    >
+                      <Text style={styles.partnerChatText}>💬 Chat</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.emptyPartnerCard}>
+                    <Text style={styles.emptyText}>Chưa kết nối với nửa kia!</Text>
+                    <TouchableOpacity
+                      style={styles.connectPartnerBtn}
+                      onPress={() => {
+                        setIsModalVisible(false);
+                        setIsLoverModalVisible(true);
+                      }}
+                    >
+                      <Text style={styles.connectPartnerText}>✨ Tìm & Kết nối Nửa kia</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.divider} />
+
+              {/* Bộ chọn màu nền */}
+              <ThemePicker />
+
+              <View style={styles.divider} />
+
+              {/* Danh sách Bạn Bè */}
               <View style={styles.friendsSection}>
                 <Text style={styles.sectionTitle}>
                   Danh sách bạn bè ({friends.length})
@@ -313,42 +477,44 @@ export default function MainApp() {
                     Chưa có bạn bè nào. Hãy bấm 🔍 để kết bạn nhé!
                   </Text>
                 ) : (
-                  friends.map((friend) => (
-                    <View key={friend.id} style={styles.friendCard}>
-                      {friend.pfp ? (
-                        <Image
-                          source={{ uri: friend.pfp }}
-                          style={styles.friendAvatar}
-                        />
-                      ) : (
-                        <View style={styles.friendAvatarPlaceholder}>
-                          <Text style={styles.friendLetter}>
-                            {friend.username
-                              ? friend.username.charAt(0).toUpperCase()
-                              : '?'}
-                          </Text>
+                  friends.map((friend) => {
+                    const avatarLetter = friend.username
+                      ? friend.username.charAt(0).toUpperCase()
+                      : '?';
+
+                    return (
+                      <View key={friend.id} style={styles.friendCard}>
+                        {friend.pfp ? (
+                          <Image
+                            source={{ uri: friend.pfp }}
+                            style={styles.friendAvatar}
+                          />
+                        ) : (
+                          <View style={styles.friendAvatarPlaceholder}>
+                            <Text style={styles.friendLetter}>{avatarLetter}</Text>
+                          </View>
+                        )}
+
+                        <Text style={styles.friendName}>{friend.username}</Text>
+
+                        <View style={styles.friendActions}>
+                          <TouchableOpacity
+                            style={styles.friendChatBtn}
+                            onPress={() => handleChatWithUser(friend)}
+                          >
+                            <Text style={styles.friendChatText}>💬 Chat</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={styles.friendUnfriendBtn}
+                            onPress={() => handleUnfriend(friend)}
+                          >
+                            <Text style={styles.friendUnfriendText}>❌ Hủy</Text>
+                          </TouchableOpacity>
                         </View>
-                      )}
-                      <Text style={styles.friendName}>{friend.username}</Text>
-
-                      {/* Các nút Hủy kết bạn và Chat ngay cạnh bạn bè */}
-                      <View style={styles.friendActions}>
-                        <TouchableOpacity
-                          style={styles.friendChatBtn}
-                          onPress={() => handleChatWithFriend(friend)}
-                        >
-                          <Text style={styles.friendChatText}>💬 Chat</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                          style={styles.friendUnfriendBtn}
-                          onPress={() => handleUnfriend(friend)}
-                        >
-                          <Text style={styles.friendUnfriendText}>❌ Hủy</Text>
-                        </TouchableOpacity>
                       </View>
-                    </View>
-                  ))
+                    );
+                  })
                 )}
               </View>
 
@@ -366,7 +532,7 @@ export default function MainApp() {
         </View>
       </Modal>
 
-      {/* 5. MODAL TÌM KIẾM TÀI KHOẢN */}
+      {/* MODAL TÌM KIẾM TÀI KHOẢN */}
       <SearchUsersModal
         visible={isSearchVisible}
         onClose={() => setIsSearchVisible(false)}
@@ -374,6 +540,13 @@ export default function MainApp() {
           setTargetChatUser(selectedUser);
           setActiveTab('chat');
         }}
+      />
+
+      {/* MODAL BẠN ĐỜI 💕 */}
+      <LoverModal
+        visible={isLoverModalVisible}
+        onClose={() => setIsLoverModalVisible(false)}
+        friends={friends}
       />
     </SafeAreaView>
   );
@@ -392,7 +565,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#EEEEEE',
   },
-  appTitle: { fontSize: 20, fontWeight: 'bold', color: '#FF4B4B' },
+  headerTitleGroup: { flexDirection: 'column' },
+  appTitle: { fontSize: 18, fontWeight: 'bold', color: '#FF4B4B' },
+  headerDaysCount: { fontSize: 12, fontWeight: '600', color: '#FF4B4B' },
+
   headerRightActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -492,6 +668,60 @@ const styles = StyleSheet.create({
 
   divider: { height: 1, backgroundColor: '#F0F0F0', marginVertical: 15 },
 
+  partnerSection: {
+    backgroundColor: '#FFF0F3',
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FFCCD5',
+  },
+  partnerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  partnerAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+    borderWidth: 2,
+    borderColor: '#FF4B4B',
+  },
+  partnerAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FF4B4B',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  partnerAvatarLetter: { color: '#FFF', fontWeight: 'bold', fontSize: 18 },
+  partnerName: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  partnerDaysText: {
+    fontSize: 12,
+    color: '#FF4B4B',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  partnerChatBtn: {
+    backgroundColor: '#FF4B4B',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+  },
+  partnerChatText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
+  emptyPartnerCard: { alignItems: 'center', paddingVertical: 8 },
+  connectPartnerBtn: {
+    backgroundColor: '#FF4B4B',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginTop: 8,
+  },
+  connectPartnerText: { color: '#FFF', fontWeight: 'bold', fontSize: 13 },
+
   friendsSection: { marginVertical: 5 },
   sectionTitle: {
     fontSize: 16,
@@ -499,7 +729,7 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 10,
   },
-  emptyText: { color: '#999', fontStyle: 'italic' },
+  emptyText: { color: '#999', fontStyle: 'italic', fontSize: 13 },
   friendCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -519,11 +749,7 @@ const styles = StyleSheet.create({
   },
   friendLetter: { color: '#555', fontWeight: 'bold', fontSize: 16 },
   friendName: { flex: 1, fontSize: 15, fontWeight: '500', color: '#333' },
-
-  friendActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  friendActions: { flexDirection: 'row', alignItems: 'center' },
   friendChatBtn: {
     backgroundColor: '#FF4B4B',
     paddingVertical: 5,
@@ -531,22 +757,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginRight: 6,
   },
-  friendChatText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
+  friendChatText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
   friendUnfriendBtn: {
     backgroundColor: '#FFF0F0',
     paddingVertical: 5,
     paddingHorizontal: 8,
     borderRadius: 12,
   },
-  friendUnfriendText: {
-    color: '#FF4B4B',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
+  friendUnfriendText: { color: '#FF4B4B', fontSize: 12, fontWeight: 'bold' },
 
   logoutButton: {
     backgroundColor: '#FFF0F0',

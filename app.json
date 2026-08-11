@@ -34,17 +34,26 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
+      ],
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "LoverWidget",
+              "label": "Hình vẽ từ Nửa Kia",
+              "minWidth": "180dp",
+              "minHeight": "180dp",
+              "description": "Xem trực tiếp bức vẽ mới nhất từ nửa kia gửi tới",
+              "updatePeriodMillis": 3600000
+            }
+          ]
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    },
-    "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "548d75bc-6337-44f9-afb8-c0f5dc5bdefd"
-      }
     }
   }
 }

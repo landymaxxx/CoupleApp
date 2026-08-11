@@ -2,11 +2,19 @@
 import { onAuthStateChanged } from 'firebase/auth';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ThemeProvider } from '../context/ThemeContext';
 import { auth } from '../../firebase'; // Điều chỉnh lại đường dẫn file firebase nếu cần
+
+// 📲 Import cho Widget
+import { registerWidgetTaskHandler } from 'react-native-android-widget';
+import { widgetTaskHandler } from '../widgets/widget-task-handler';
 
 import LoginScreen from '../screen/LoginScreen';
 import MainApp from '../screen/MainApp';
 import RegisterScreen from '../screen/RegisterScreen';
+
+// 📌 Đăng ký Widget Task Handler ngay khi ứng dụng khởi chạy (đặt ngoài component)
+registerWidgetTaskHandler(widgetTaskHandler);
 
 export default function Page() {
   const [user, setUser] = useState(null);
@@ -31,7 +39,11 @@ export default function Page() {
 
   // Đã đăng nhập -> Vào App chính
   if (user) {
-    return <MainApp />;
+    return (
+      <ThemeProvider>
+        <MainApp />
+      </ThemeProvider>
+    );
   }
 
   // Chưa đăng nhập -> Hiện Đăng nhập hoặc Đăng ký

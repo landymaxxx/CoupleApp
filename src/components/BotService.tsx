@@ -1,16 +1,20 @@
 import { useEffect, useRef } from 'react';
-import { db } from '../../firebase';
+import { auth, db } from '../../firebase';
 import { ref, onChildAdded, push, get } from 'firebase/database';
 
 export function BotService() {
   const counterRef = useRef<number>(1);
+  const currentUser = auth.currentUser;
 
   useEffect(() => {
-    // Chỉ lắng nghe tin nhắn trong phòng chat riêng của Bot
-    const botMessagesRef = ref(db, 'messages/bot_chat');
+    // Nếu chưa đăng nhập thì không chạy listener
+    if (!currentUser) return;
+
+    // 🔥 SỬA TẠI ĐÂY: Chỉ lắng nghe phòng chat riêng của User hiện tại
+    const botMessagesRef = ref(db, `messages/bot_${currentUser.uid}`);
     const startTime = Date.now();
 
-    // Tự động tạo tin nhắn chào mừng nếu phòng bot chưa có gì
+    // Tự động tạo tin nhắn chào mừng nếu phòng bot cá nhân chưa có dữ liệu
     get(botMessagesRef).then((snapshot) => {
       if (!snapshot.exists()) {
         push(botMessagesRef, {
@@ -32,7 +36,7 @@ export function BotService() {
 
         setTimeout(() => {
           push(botMessagesRef, {
-            text: `${currentNum}`,
+            text: `🤖 [Test Bot]: ${currentNum}`,
             createdAt: Date.now(),
             isBot: true,
           });
@@ -41,7 +45,7 @@ export function BotService() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]);
 
   return null;
 }
