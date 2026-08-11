@@ -45,15 +45,15 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 8. Build APK với tính năng TÁCH KIẾN TRÚC CHIP (ABI Split)
+      # 8. Build APK
       - name: Build Android Release APK
         run: |
           cd android
           ./gradlew assembleRelease -PenableSeparateBuildPerCPUArchitecture=true
 
-      # 9. Upload file APK nhẹ nhất (arm64-v8a - chạy cho 99% smartphone)
+      # 9. Upload TẤT CẢ file APK tìm thấy trong thư mục release
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-arm64-v8a-release
-          path: android/app/build/outputs/apk/release/app-arm64-v8a-release.apk
+          name: app-release-apks
+          path: android/app/build/outputs/apk/release/*.apk
