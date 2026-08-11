@@ -22,24 +22,29 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      # 3. Cài đặt Java JDK
+      # 3. Cài đặt Java JDK (Dùng temurin để tận dụng Java pre-installed sẵn trên GitHub Runner)
       - name: Setup Java JDK
         uses: actions/setup-java@v4
         with:
-          distribution: 'microsoft'
+          distribution: 'temurin'
           java-version: '17'
 
-      # 4. Tự động Cache Gradle (Giúp tăng tốc từ lần build sau)
+      # 4. Tự động Cache Gradle (Tăng tốc vượt trội từ lần build thứ 2)
       - name: Setup Gradle Cache
         uses: gradle/actions/setup-gradle@v3
 
-      # 5. Cài đặt Android SDK
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # 5. Duyệt License Android SDK siêu tốc (Thay thế cho android-actions/setup-android bị chậm)
+      - name: Accept Android SDK Licenses
+        run: |
+          mkdir -p $ANDROID_HOME/licenses
+          echo "2433373574b44d5d828864828680b92a1e065f4f" > $ANDROID_HOME/licenses/android-sdk-license
+          echo "84831b9409646a578f447d11500a00d13887030f" >> $ANDROID_HOME/licenses/android-sdk-license
+          echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> $ANDROID_HOME/licenses/android-sdk-license
+          echo "2433373574b44d5d828864828680b92a1e065f4f" > $ANDROID_HOME/licenses/android-sdk-preview-license
 
-      # 6. Cài đặt dependencies
+      # 6. Cài đặt dependencies (Dùng npm ci thay vì npm install để cài sạch & nhanh hơn trên CI)
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       # 7. Prebuild Android project
       - name: Prebuild Android project
@@ -49,11 +54,11 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 9. Build APK - CHỈ biên dịch cho chip arm64-v8a (Siêu nhanh & Siêu nhẹ)
+      # 9. Build APK - CHỈ biên dịch cho chip arm64-v8a (Thêm --no-daemon để tối ưu tài nguyên CI)
       - name: Build Android Release APK
         run: |
           cd android
-          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
+          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
 
       # 10. Upload file APK
       - name: Upload APK Artifact
