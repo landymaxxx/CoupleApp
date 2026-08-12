@@ -39,8 +39,8 @@ export function LoverWidget({ imageUri, senderName }: LoverWidgetProps) {
           />
           <ImageWidget
             image={imageUri as any}
-            imageWidth={280}
-            imageHeight={280}
+            imageWidth={260}
+            imageHeight={260}
             radius={12}
             style={{
               marginTop: 4,

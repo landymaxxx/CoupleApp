@@ -3,18 +3,39 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { ThemeProvider } from '../context/ThemeContext';
-import { auth } from '../../firebase'; // Điều chỉnh lại đường dẫn file firebase nếu cần
+import { auth } from '../../firebase';
 
-// 📲 Import cho Widget
-import { registerWidgetTaskHandler } from 'react-native-android-widget';
+// 📲 Import cho Widget & FCM
+import { registerWidgetTaskHandler, requestWidgetUpdate } from 'react-native-android-widget';
 import { widgetTaskHandler } from '../widgets/widget-task-handler';
+import { LoverWidget } from '../widgets/LoverWidget';
+import messaging from '@react-native-firebase/messaging';
 
 import LoginScreen from '../screen/LoginScreen';
 import MainApp from '../screen/MainApp';
 import RegisterScreen from '../screen/RegisterScreen';
 
-// 📌 Đăng ký Widget Task Handler ngay khi ứng dụng khởi chạy (đặt ngoài component)
+// 📌 1. Đăng ký Widget Task Handler ngay khi ứng dụng khởi chạy
 registerWidgetTaskHandler(widgetTaskHandler);
+
+// 📌 2. Đăng ký xử lý Push ngầm khi app bị KILL / tắt hoàn toàn
+messaging().setBackgroundMessageHandler(async (remoteMessage) => {
+  if (remoteMessage.data?.type === 'UPDATE_WIDGET') {
+    const { imageUri, senderName } = remoteMessage.data;
+
+    try {
+      await requestWidgetUpdate({
+        widgetName: 'LoverWidget',
+        renderWidget: () => (
+          <LoverWidget imageUri={imageUri} senderName={senderName} />
+        ),
+        widgetNotFound: () => {},
+      });
+    } catch (error) {
+      console.log('Lỗi cập nhật Widget ngầm:', error);
+    }
+  }
+});
 
 export default function Page() {
   const [user, setUser] = useState(null);

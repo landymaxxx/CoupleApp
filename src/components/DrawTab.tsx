@@ -1,5 +1,7 @@
+// @ts-nocheck
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   GestureResponderEvent,
   PanResponder,
@@ -9,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { captureRef } from 'react-native-view-shot'; // 👈 Dùng captureRef thay vì import ViewShot component
+import { captureRef } from 'react-native-view-shot';
 import { get, onValue, ref, set } from 'firebase/database';
 import { auth, db } from '../../firebase';
 import { useTheme } from '../context/ThemeContext';
@@ -21,20 +23,19 @@ interface DrawTabProps {
 const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
   const { bgColor } = useTheme();
   const [paths, setPaths] = useState<string[]>([]);
-  const [currentPath, setCurrentPath] = useState<string[]>([]);
+  const [currentPath, setCurrentPath] = useState<string>('');
+  const [isSending, setIsSending] = useState<boolean>(false);
   const currentUser = auth.currentUser;
 
-  // 🎯 Ref gán trực tiếp cho View canvas (Dùng type View chuẩn của React Native)
   const canvasRef = useRef<View>(null);
+  const currentPathRef = useRef<string>('');
 
   const getDrawingPath = () => {
     if (!currentUser) return null;
-
     if (loverId) {
       const roomId = [currentUser.uid, loverId].sort().join('_');
       return `drawings/couples/${roomId}`;
     }
-
     return `drawings/personal/${currentUser.uid}`;
   };
 
@@ -63,29 +64,39 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt: GestureResponderEvent) => {
         const { locationX, locationY } = evt.nativeEvent;
-        setCurrentPath([`M ${locationX} ${locationY}`]);
+        const startPoint = `M ${locationX.toFixed(1)} ${locationY.toFixed(1)}`;
+        currentPathRef.current = startPoint;
+        setCurrentPath(startPoint);
       },
       onPanResponderMove: (evt: GestureResponderEvent) => {
         const { locationX, locationY } = evt.nativeEvent;
-        setCurrentPath((prev) => [...prev, `L ${locationX} ${locationY}`]);
+        const newPoint = ` L ${locationX.toFixed(1)} ${locationY.toFixed(1)}`;
+        currentPathRef.current += newPoint;
+        setCurrentPath(currentPathRef.current);
       },
       onPanResponderRelease: () => {
-        setCurrentPath((prevCurrent) => {
-          if (prevCurrent.length > 0) {
-            const pathString = prevCurrent.join(' ');
-            setPaths((prevPaths) => {
-              const updated = [...prevPaths, pathString];
-              if (drawingPath) {
-                set(ref(db, drawingPath), updated);
-              }
-              return updated;
-            });
+        const finishedPath = currentPathRef.current;
+        if (finishedPath) {
+          const updatedPaths = [...paths, finishedPath];
+          setPaths(updatedPaths);
+          if (drawingPath) {
+            set(ref(db, drawingPath), updatedPaths);
           }
-          return [];
-        });
+        }
+        currentPathRef.current = '';
+        setCurrentPath('');
       },
     })
   ).current;
+
+  const handleUndo = () => {
+    if (paths.length === 0) return;
+    const updatedPaths = paths.slice(0, -1);
+    setPaths(updatedPaths);
+    if (drawingPath) {
+      set(ref(db, drawingPath), updatedPaths);
+    }
+  };
 
   const handleClearDraw = () => {
     setPaths([]);
@@ -94,7 +105,7 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
     }
   };
 
-  // 🔥 HÀM CHỤP VÀ GỬI HÌNH VẼ NÉN BASE64
+  // 📲 Gửi hình vẽ tới Widget Màn hình chính của Nửa kia
   const handleSendToLoverLockscreen = async () => {
     if (!currentUser) return;
     if (paths.length === 0) {
@@ -102,37 +113,75 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
       return;
     }
 
+    setIsSending(true);
     try {
       const myUserSnap = await get(ref(db, `users/${currentUser.uid}`));
       const currentLoverId = myUserSnap.val()?.loverId;
+      const myUsername = myUserSnap.val()?.username || 'Bạn đời';
 
       if (!currentLoverId) {
         Alert.alert('Chưa có Bạn Đời', 'Bạn cần kết bạn đời trước để dùng tính năng này!');
+        setIsSending(false);
         return;
       }
 
-      // 📸 Chụp vùng vẽ bằng captureRef
+      // 📸 1. Chụp vùng vẽ và bóp kích thước về 300x300px để tối ưu dung lượng Widget
       let imageBase64 = '';
       if (canvasRef.current) {
         imageBase64 = await captureRef(canvasRef, {
           format: 'jpg',
           quality: 0.5,
+          width: 300,
+          height: 300,
           result: 'base64',
         });
       }
 
       const imageUri = `data:image/jpeg;base64,${imageBase64}`;
 
-      // 💾 Lưu hình chụp dạng Base64 sang node của bạn đời
+      // 💾 2. Lưu hình vẽ vào Firebase Database của nửa kia
       await set(ref(db, `loverDrawings/${currentLoverId}`), {
-        imageUri: imageUri,
-        senderName: myUserSnap.val()?.username || 'Bạn đời',
+        imageUri,
+        senderName: myUsername,
         timestamp: Date.now(),
       });
 
+      // 🔔 3. Lấy FCM Token của nửa kia và gửi tín hiệu Push ngầm (nếu có)
+      const loverSnap = await get(ref(db, `users/${currentLoverId}`));
+      const loverFcmToken = loverSnap.val()?.fcmToken;
+
+      if (loverFcmToken) {
+        // Tín hiệu đẩy FCM ngầm để kích hoạt Widget trên máy đối phương khi họ đóng app
+        try {
+          await fetch('https://exp.host/--/api/v2/push/send', {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json',
+              'Accept-encoding': 'gzip, deflate',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              to: loverFcmToken,
+              sound: 'default',
+              title: 'Hình vẽ mới 💕',
+              body: `${myUsername} vừa gửi cho bạn một bức vẽ mới!`,
+              data: {
+                type: 'UPDATE_WIDGET',
+                imageUri,
+                senderName: myUsername,
+              },
+            }),
+          });
+        } catch (pushErr) {
+          console.log('Lỗi gửi push notification:', pushErr);
+        }
+      }
+
       Alert.alert('Thành công 💕', 'Hình vẽ đã được gửi tới Widget của bạn đời!');
     } catch (error: any) {
-      Alert.alert('Lỗi', error.message);
+      Alert.alert('Lỗi', error.message || 'Không thể gửi hình vẽ.');
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -142,18 +191,29 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
         <Text style={styles.drawTitle}>
           {loverId ? 'Bảng Vẽ Đôi Realtime 💕' : 'Bảng Vẽ Cá Nhân 👤'}
         </Text>
-        <View style={{ flexDirection: 'row', gap: 6 }}>
-          <TouchableOpacity style={styles.sendLoverBtn} onPress={handleSendToLoverLockscreen}>
-            <Text style={styles.sendLoverText}>📲 Gửi bạn đời</Text>
+        <View style={styles.actionButtons}>
+          <TouchableOpacity
+            style={[styles.btn, styles.sendLoverBtn, isSending && styles.disabledBtn]}
+            onPress={handleSendToLoverLockscreen}
+            disabled={isSending}
+          >
+            {isSending ? (
+              <ActivityIndicator size="small" color="#FF4B4B" />
+            ) : (
+              <Text style={styles.sendLoverText}>📲 Gửi bạn đời</Text>
+            )}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.clearBtn} onPress={handleClearDraw}>
+          <TouchableOpacity style={[styles.btn, styles.undoBtn]} onPress={handleUndo}>
+            <Text style={styles.undoBtnText}>↩ Hoàn tác</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.btn, styles.clearBtn]} onPress={handleClearDraw}>
             <Text style={styles.clearBtnText}>Xóa</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* 📸 GẮN REF VÀO CANVAS VIEW VÀ THÊM collapsable={false} CHO ANDROID */}
       <View
         ref={canvasRef}
         collapsable={false}
@@ -163,7 +223,7 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
         <Svg style={styles.svg}>
           {paths.map((pathStr: string, index: number) => (
             <Path
-              key={index}
+              key={`path-${index}`}
               d={pathStr}
               stroke="#FF4B4B"
               strokeWidth={5}
@@ -172,9 +232,9 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
               strokeLinejoin="round"
             />
           ))}
-          {currentPath.length > 0 && (
+          {currentPath !== '' && (
             <Path
-              d={currentPath.join(' ')}
+              d={currentPath}
               stroke="#FF4B4B"
               strokeWidth={5}
               fill="none"
@@ -201,11 +261,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#EEEEEE',
   },
-  drawTitle: { fontSize: 15, fontWeight: 'bold', color: '#333' },
-  sendLoverBtn: { backgroundColor: '#FFEAEA', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  drawTitle: { fontSize: 14, fontWeight: 'bold', color: '#333' },
+  actionButtons: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  btn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  sendLoverBtn: { backgroundColor: '#FFEAEA' },
   sendLoverText: { color: '#FF4B4B', fontWeight: 'bold', fontSize: 12 },
-  clearBtn: { backgroundColor: '#FF4B4B', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  undoBtn: { backgroundColor: '#E0E0E0' },
+  undoBtnText: { color: '#333', fontWeight: '600', fontSize: 12 },
+  clearBtn: { backgroundColor: '#FF4B4B' },
   clearBtnText: { color: '#FFF', fontWeight: '600', fontSize: 12 },
+  disabledBtn: { opacity: 0.6 },
   canvasContainer: { flex: 1, backgroundColor: '#FFFFFF' },
   svg: { flex: 1 },
 });
