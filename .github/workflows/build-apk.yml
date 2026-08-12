@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - development
+      - main # <--- Đã thêm nhánh main
   workflow_dispatch:
 
 # Tối ưu RAM cho Gradle & Bật Build Cache
@@ -37,7 +38,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 5. Cài đặt Android SDK (đã tự chấp nhận licenses, không cần bước thủ công nữa)
+      # 5. Cài đặt Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -47,8 +48,7 @@ jobs:
       - name: Prebuild Android project
         run: npx expo prebuild --platform android --no-install
 
-      # 7. Cache ccache để tái sử dụng object file đã compile của native code
-      #    (Reanimated, Worklets, expo-modules-core...) giữa các lần build
+      # 7. Cache ccache
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
@@ -65,7 +65,7 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 10. Build APK release (Thêm --no-daemon để tiết kiệm RAM trên CI)
+      # 10. Build APK release
       - name: Build Android Release APK
         env:
           NDK_CCACHE: ccache
