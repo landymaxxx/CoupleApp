@@ -30,6 +30,7 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
   const canvasRef = useRef<View>(null);
   const currentPathRef = useRef<string>('');
 
+  // Xác định đường dẫn lưu nét vẽ Realtime
   const getDrawingPath = () => {
     if (!currentUser) return null;
     if (loverId) {
@@ -41,6 +42,7 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
 
   const drawingPath = getDrawingPath();
 
+  // Lắng nghe dữ liệu nét vẽ Realtime từ Firebase
   useEffect(() => {
     if (!drawingPath) return;
 
@@ -58,6 +60,7 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
     };
   }, [drawingPath]);
 
+  // Khởi tạo PanResponder xử lý vuốt/vẽ trên màn hình
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -89,6 +92,7 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
     })
   ).current;
 
+  // Xử lý Hoàn tác nét vẽ cuối
   const handleUndo = () => {
     if (paths.length === 0) return;
     const updatedPaths = paths.slice(0, -1);
@@ -98,6 +102,7 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
     }
   };
 
+  // Xử lý Xóa sạch bảng vẽ
   const handleClearDraw = () => {
     setPaths([]);
     if (drawingPath) {
@@ -125,7 +130,7 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
         return;
       }
 
-      // 📸 1. Chụp vùng vẽ và bóp kích thước về 300x300px để tối ưu dung lượng Widget
+      // 📸 1. Chụp vùng vẽ và resize về 300x300px để tối ưu dung lượng Widget
       let imageBase64 = '';
       if (canvasRef.current) {
         imageBase64 = await captureRef(canvasRef, {
@@ -146,37 +151,6 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
         timestamp: Date.now(),
       });
 
-      // 🔔 3. Lấy FCM Token của nửa kia và gửi tín hiệu Push ngầm (nếu có)
-      const loverSnap = await get(ref(db, `users/${currentLoverId}`));
-      const loverFcmToken = loverSnap.val()?.fcmToken;
-
-      if (loverFcmToken) {
-        // Tín hiệu đẩy FCM ngầm để kích hoạt Widget trên máy đối phương khi họ đóng app
-        try {
-          await fetch('https://exp.host/--/api/v2/push/send', {
-            method: 'POST',
-            headers: {
-              Accept: 'application/json',
-              'Accept-encoding': 'gzip, deflate',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              to: loverFcmToken,
-              sound: 'default',
-              title: 'Hình vẽ mới 💕',
-              body: `${myUsername} vừa gửi cho bạn một bức vẽ mới!`,
-              data: {
-                type: 'UPDATE_WIDGET',
-                imageUri,
-                senderName: myUsername,
-              },
-            }),
-          });
-        } catch (pushErr) {
-          console.log('Lỗi gửi push notification:', pushErr);
-        }
-      }
-
       Alert.alert('Thành công 💕', 'Hình vẽ đã được gửi tới Widget của bạn đời!');
     } catch (error: any) {
       Alert.alert('Lỗi', error.message || 'Không thể gửi hình vẽ.');
@@ -187,6 +161,7 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
 
   return (
     <View style={[styles.container, { backgroundColor: bgColor }]}>
+      {/* Header thanh công cụ vẽ */}
       <View style={styles.drawHeader}>
         <Text style={styles.drawTitle}>
           {loverId ? 'Bảng Vẽ Đôi Realtime 💕' : 'Bảng Vẽ Cá Nhân 👤'}
@@ -214,6 +189,7 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
         </View>
       </View>
 
+      {/* Vùng cảm ứng vẽ SVG */}
       <View
         ref={canvasRef}
         collapsable={false}

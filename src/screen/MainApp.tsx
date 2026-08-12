@@ -17,10 +17,9 @@ import { signOut } from 'firebase/auth';
 import { onValue, ref, remove, update } from 'firebase/database';
 import { auth, db } from '../../firebase';
 
-// 📲 Import cho Widget & FCM Messaging
+// 📲 Import cho Widget Home Screen (Giữ nguyên)
 import { requestWidgetUpdate } from 'react-native-android-widget';
 import { LoverWidget } from '../widgets/LoverWidget';
-import messaging from '@react-native-firebase/messaging';
 
 // Components & Context
 import ThemePicker from '../components/ThemePicker';
@@ -36,7 +35,6 @@ interface UserProfile {
   email?: string;
   loverId?: string;
   loveStartDate?: string;
-  fcmToken?: string;
 }
 
 interface Friend {
@@ -150,7 +148,7 @@ export default function MainApp() {
     };
   }, [currentUser?.uid]);
 
-  // 🔥 2. LẮNG NGHE HÌNH VẼ ĐƯỢC GỬI TỚI ĐỂ CẬP NHẬT WIDGET KHI APP ĐANG BẬT
+  // 🔥 2. Lắng nghe hình vẽ được gửi tới để cập nhật Widget Widget Màn hình chính
   useEffect(() => {
     if (!currentUser?.uid) return;
 
@@ -176,46 +174,6 @@ export default function MainApp() {
 
     return () => {
       unsubscribeLoverDrawing();
-    };
-  }, [currentUser?.uid]);
-
-  // 🔔 3. XIN QUYỀN VÀ KHỞI TẠO FCM TOKEN LƯU LÊN FIREBASE
-  useEffect(() => {
-    if (!currentUser?.uid) return;
-
-    const setupFcmToken = async () => {
-      try {
-        const authStatus = await messaging().requestPermission();
-        const enabled =
-          authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-          authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-
-        if (enabled) {
-          const token = await messaging().getToken();
-          if (token) {
-            await update(ref(db, `users/${currentUser.uid}`), {
-              fcmToken: token,
-            });
-          }
-        }
-      } catch (e) {
-        console.log('Lỗi khởi tạo FCM Token:', e);
-      }
-    };
-
-    setupFcmToken();
-
-    // Lắng nghe tự động cập nhật khi Token bị làm mới
-    const unsubscribeTokenRefresh = messaging().onTokenRefresh(async (newToken: string) => {
-      if (currentUser?.uid) {
-        await update(ref(db, `users/${currentUser.uid}`), {
-          fcmToken: newToken,
-        });
-      }
-    });
-
-    return () => {
-      unsubscribeTokenRefresh();
     };
   }, [currentUser?.uid]);
 
