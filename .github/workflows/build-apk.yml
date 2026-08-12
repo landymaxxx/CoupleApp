@@ -37,12 +37,17 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 5. Tự động chấp nhận toàn bộ Android SDK Licenses
-      - name: Accept Android SDK Licenses
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+      # 5. Cài đặt Android SDK chuẩn (Thay thế cho lệnh thủ công bị lỗi kẹt log)
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      # 6. Tạo file google-services.json từ GitHub Secret
+      # 6. Setup & Cache Gradle (Đưa lên trước prebuild để tối ưu)
+      - name: Setup Gradle Cache
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: false
+
+      # 7. Tạo file google-services.json từ GitHub Secret
       - name: Decode google-services.json
         env:
           GOOGLE_SERVICES_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON }}
@@ -54,22 +59,16 @@ jobs:
             echo "Warning: GOOGLE_SERVICES_JSON secret is empty!"
           fi
 
-      # 7. Prebuild để tạo thư mục native /android
+      # 8. Prebuild để tạo thư mục native /android (Expo sẽ tự đưa google-services.json vào đúng chỗ)
       - name: Prebuild Android project
         run: npx expo prebuild --platform android --no-install
 
-      # 8. Setup ccache tối ưu thời gian compile C++/Native modules
+      # 9. Setup ccache tối ưu thời gian compile C++/Native modules
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
           key: ${{ runner.os }}-ccache-android
           max-size: 500M
-
-      # 9. Setup & Cache Gradle
-      - name: Setup Gradle Cache
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          cache-read-only: false
 
       # 10. Cấp quyền thực thi cho gradlew
       - name: Make gradlew executable
