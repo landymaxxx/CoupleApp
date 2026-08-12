@@ -3,30 +3,70 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   GestureResponderEvent,
   PanResponder,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { get, onValue, ref, set } from 'firebase/database';
+import { onValue, ref, set } from 'firebase/database';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { auth, db } from '../../firebase';
 import { useTheme } from '../context/ThemeContext';
 
-interface DrawTabProps {
-  loverId?: string;
+interface StrokeItem {
+  path: string;
+  color: string;
+  userId: string;
 }
 
-const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
-  const { bgColor } = useTheme();
-  const [paths, setPaths] = useState<string[]>([]);
-  const [currentPath, setCurrentPath] = useState<string>('');
-  const currentUser = auth.currentUser;
+interface DrawTabProps {
+  loverId?: string;
+  onToggleDetail?: (isDetail: boolean) => void;
+}
 
+const COLOR_LIST = [
+  '#FF4B4B', // Đỏ
+  '#FF9500', // Cam
+  '#FFCC00', // Vàng
+  '#34C759', // Xanh lá
+  '#007AFF', // Xanh dương
+  '#5856D6', // Tím
+  '#AF52DE', // Tím hồng
+  '#000000', // Đen
+  '#8E8E93', // Xám
+];
+
+const DrawTab: React.FC<DrawTabProps> = ({ loverId, onToggleDetail }) => {
+  const { bgColor } = useTheme();
+  const insets = useSafeAreaInsets();
+
+  const [paths, setPaths] = useState<StrokeItem[]>([]);
+  const [currentPath, setCurrentPath] = useState<string>('');
+  const [selectedColor, setSelectedColor] = useState<string>('#FF4B4B');
+
+  const currentUser = auth.currentUser;
   const canvasRef = useRef<View>(null);
   const currentPathRef = useRef<string>('');
+  const pathsRef = useRef<StrokeItem[]>([]);
+  const selectedColorRef = useRef<string>('#FF4B4B');
 
-  // Xác định đường dẫn lưu nét vẽ Realtime
+  useEffect(() => {
+    selectedColorRef.current = selectedColor;
+  }, [selectedColor]);
+
+  useEffect(() => {
+    if (onToggleDetail) {
+      onToggleDetail(true);
+    }
+    return () => {
+      if (onToggleDetail) {
+        onToggleDetail(false);
+      }
+    };
+  }, [onToggleDetail]);
+
   const getDrawingPath = () => {
     if (!currentUser) return null;
     if (loverId) {
@@ -38,7 +78,6 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
 
   const drawingPath = getDrawingPath();
 
-  // Lắng nghe dữ liệu nét vẽ Realtime từ Firebase
   useEffect(() => {
     if (!drawingPath) return;
 
@@ -46,17 +85,25 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
     const drawingRef = ref(db, drawingPath);
     const unsubscribe = onValue(drawingRef, (snapshot) => {
       if (!isMounted) return;
-      const data = snapshot.val();
-      setPaths(data || []);
+      const rawData = snapshot.val() || [];
+
+      const normalizedData: StrokeItem[] = rawData.map((item: any) => {
+        if (typeof item === 'string') {
+          return { path: item, color: '#FF4B4B', userId: currentUser?.uid || '' };
+        }
+        return item;
+      });
+
+      setPaths(normalizedData);
+      pathsRef.current = normalizedData;
     });
 
     return () => {
       isMounted = false;
       unsubscribe();
     };
-  }, [drawingPath]);
+  }, [drawingPath, currentUser]);
 
-  // Khởi tạo PanResponder xử lý vuốt/vẽ trên màn hình
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -75,9 +122,17 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
       },
       onPanResponderRelease: () => {
         const finishedPath = currentPathRef.current;
-        if (finishedPath) {
-          const updatedPaths = [...paths, finishedPath];
+        if (finishedPath && currentUser) {
+          const newStroke: StrokeItem = {
+            path: finishedPath,
+            color: selectedColorRef.current,
+            userId: currentUser.uid,
+          };
+
+          const updatedPaths = [...pathsRef.current, newStroke];
+          pathsRef.current = updatedPaths;
           setPaths(updatedPaths);
+
           if (drawingPath) {
             set(ref(db, drawingPath), updatedPaths);
           }
@@ -88,27 +143,54 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
     })
   ).current;
 
-  // Xử lý Hoàn tác nét vẽ cuối
+  // 🟢 Hoàn tác: Tìm nét vẽ cuối cùng của chính mình và xóa đi
   const handleUndo = () => {
-    if (paths.length === 0) return;
-    const updatedPaths = paths.slice(0, -1);
+    if (!currentUser || pathsRef.current.length === 0) return;
+
+    const myLastIndex = [...pathsRef.current]
+      .reverse()
+      .findIndex((stroke) => stroke.userId === currentUser.uid);
+
+    if (myLastIndex === -1) return;
+
+    const actualIndex = pathsRef.current.length - 1 - myLastIndex;
+    const updatedPaths = pathsRef.current.filter((_, idx) => idx !== actualIndex);
+
+    pathsRef.current = updatedPaths;
     setPaths(updatedPaths);
+
     if (drawingPath) {
       set(ref(db, drawingPath), updatedPaths);
     }
   };
 
-  // Xử lý Xóa sạch bảng vẽ
-  const handleClearDraw = () => {
-    setPaths([]);
+  // 🟢 Chỉ xóa nét vẽ của chính mình
+  const handleClearMyDrawings = () => {
+    if (!currentUser || pathsRef.current.length === 0) return;
+
+    const updatedPaths = pathsRef.current.filter(
+      (stroke) => stroke.userId !== currentUser.uid
+    );
+
+    pathsRef.current = updatedPaths;
+    setPaths(updatedPaths);
+
     if (drawingPath) {
-      set(ref(db, drawingPath), []);
+      set(ref(db, drawingPath), updatedPaths);
     }
   };
 
+  // 🟢 MỚI: Xóa toàn bộ nét vẽ của cả hai
+  const handleClearAllDrawings = () => {
+    if (!drawingPath || pathsRef.current.length === 0) return;
+
+    pathsRef.current = [];
+    setPaths([]);
+    set(ref(db, drawingPath), []);
+  };
+
   return (
-    <View style={[styles.container, { backgroundColor: bgColor }]}>
-      {/* Header thanh công cụ vẽ */}
+    <View style={[styles.container, { backgroundColor: bgColor, paddingBottom: insets.bottom }]}>
       <View style={styles.drawHeader}>
         <Text style={styles.drawTitle}>
           {loverId ? 'Bảng Vẽ Đôi Realtime 💕' : 'Bảng Vẽ Cá Nhân 👤'}
@@ -118,13 +200,17 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
             <Text style={styles.undoBtnText}>↩ Hoàn tác</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.btn, styles.clearBtn]} onPress={handleClearDraw}>
-            <Text style={styles.clearBtnText}>Xóa</Text>
+          <TouchableOpacity style={[styles.btn, styles.clearBtn]} onPress={handleClearMyDrawings}>
+            <Text style={styles.clearBtnText}>Xóa nét tôi</Text>
+          </TouchableOpacity>
+
+          {/* 🟢 Nút xóa tất cả / xóa cả 2 */}
+          <TouchableOpacity style={[styles.btn, styles.clearAllBtn]} onPress={handleClearAllDrawings}>
+            <Text style={styles.clearBtnText}>Xóa tất cả</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Vùng cảm ứng vẽ SVG */}
       <View
         ref={canvasRef}
         collapsable={false}
@@ -132,11 +218,11 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
         {...panResponder.panHandlers}
       >
         <Svg style={styles.svg}>
-          {paths.map((pathStr: string, index: number) => (
+          {paths.map((item: StrokeItem, index: number) => (
             <Path
               key={`path-${index}`}
-              d={pathStr}
-              stroke="#FF4B4B"
+              d={item.path}
+              stroke={item.color || '#FF4B4B'}
               strokeWidth={5}
               fill="none"
               strokeLinecap="round"
@@ -146,7 +232,7 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
           {currentPath !== '' && (
             <Path
               d={currentPath}
-              stroke="#FF4B4B"
+              stroke={selectedColor}
               strokeWidth={5}
               fill="none"
               strokeLinecap="round"
@@ -154,6 +240,25 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
             />
           )}
         </Svg>
+      </View>
+
+      <View style={styles.paletteContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.colorList}>
+          {COLOR_LIST.map((color) => {
+            const isSelected = selectedColor === color;
+            return (
+              <TouchableOpacity
+                key={color}
+                style={[
+                  styles.colorCircle,
+                  { backgroundColor: color },
+                  isSelected && styles.selectedColorCircle,
+                ]}
+                onPress={() => setSelectedColor(color)}
+              />
+            );
+          })}
+        </ScrollView>
       </View>
     </View>
   );
@@ -164,7 +269,7 @@ export default DrawTab;
 const styles = StyleSheet.create({
   container: { flex: 1 },
   drawHeader: {
-    padding: 12,
+    padding: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -172,13 +277,35 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#EEEEEE',
   },
-  drawTitle: { fontSize: 14, fontWeight: 'bold', color: '#333' },
+  drawTitle: { fontSize: 13, fontWeight: 'bold', color: '#333' },
   actionButtons: { flexDirection: 'row', gap: 6, alignItems: 'center' },
-  btn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  btn: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 6 },
   undoBtn: { backgroundColor: '#E0E0E0' },
-  undoBtnText: { color: '#333', fontWeight: '600', fontSize: 12 },
-  clearBtn: { backgroundColor: '#FF4B4B' },
-  clearBtnText: { color: '#FFF', fontWeight: '600', fontSize: 12 },
+  undoBtnText: { color: '#333', fontWeight: '600', fontSize: 11 },
+  clearBtn: { backgroundColor: '#FF9500' },
+  clearAllBtn: { backgroundColor: '#FF4B4B' }, // Màu đỏ đậm hơn cho nút xóa tất cả
+  clearBtnText: { color: '#FFF', fontWeight: '600', fontSize: 11 },
   canvasContainer: { flex: 1, backgroundColor: '#FFFFFF' },
   svg: { flex: 1 },
+  paletteContainer: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#EEEEEE',
+  },
+  colorList: {
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    gap: 12,
+  },
+  colorCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+  },
+  selectedColorCircle: {
+    borderWidth: 3,
+    borderColor: '#333333',
+    transform: [{ scale: 1.15 }],
+  },
 });

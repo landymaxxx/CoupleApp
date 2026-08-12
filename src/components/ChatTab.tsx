@@ -1,8 +1,10 @@
+// @ts-nocheck
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -15,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { onValue, push, ref, remove } from 'firebase/database';
 import { auth, db } from '../../firebase';
 import { useTheme } from '../context/ThemeContext';
+import { useUI } from '../context/UIContext';
 import { UserItem } from './SearchUsersModal';
 
 interface Message {
@@ -35,10 +38,14 @@ interface ChatRoom {
 interface ChatTabProps {
   targetUser?: UserItem | null;
   onClearTarget?: () => void;
+  onToggleDetail?: (isDetail: boolean) => void;
 }
 
-export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
+export default function ChatTab({ targetUser, onClearTarget, onToggleDetail }: ChatTabProps) {
   const { bgColor } = useTheme();
+  const uiContext = useUI();
+  
+  const setBottomBarHidden = uiContext?.setBottomBarHidden || uiContext?.setIsBottomBarHidden;
   const insets = useSafeAreaInsets();
 
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
@@ -46,9 +53,40 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
   const [inputText, setInputText] = useState('');
   const [chatList, setChatList] = useState<ChatRoom[]>([]);
   const [myPfp, setMyPfp] = useState<string | undefined>(undefined);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   const flatListRef = useRef<FlatList>(null);
   const currentUser = auth.currentUser;
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setIsKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setIsKeyboardVisible(false)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    const isDetail = !!selectedRoom;
+    if (setBottomBarHidden) {
+      setBottomBarHidden(isDetail);
+    }
+    if (onToggleDetail) {
+      onToggleDetail(isDetail);
+    }
+    return () => {
+      if (setBottomBarHidden) {
+        setBottomBarHidden(false);
+      }
+    };
+  }, [selectedRoom, setBottomBarHidden, onToggleDetail]);
 
   const formatTime = (timestamp: number) => {
     if (!timestamp) return '';
@@ -56,7 +94,6 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // 1. Lấy Avatar bản thân
   useEffect(() => {
     if (!currentUser) return;
     const myUserRef = ref(db, `users/${currentUser.uid}`);
@@ -68,13 +105,11 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
     return () => unsubscribeMyUser();
   }, [currentUser]);
 
-  // 2. Lấy danh sách cuộc trò chuyện
   useEffect(() => {
     if (!currentUser) return;
 
-    // 🔥 SỬA TẠI ĐÂY: Tạo ID phòng chat Bot riêng biệt theo UID của từng tài khoản
     const botRoom: ChatRoom = {
-      id: `bot_${currentUser.uid}`,
+      id: 'bot_chat',
       name: 'Test Bot 🤖',
       isBot: true,
     };
@@ -106,7 +141,6 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
     return () => unsubscribeFriends();
   }, [currentUser]);
 
-  // 3. Chọn phòng chat
   useEffect(() => {
     if (targetUser && currentUser) {
       const roomId = [currentUser.uid, targetUser.id].sort().join('_');
@@ -118,7 +152,6 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
     }
   }, [targetUser, currentUser]);
 
-  // 4. Lắng nghe tin nhắn Realtime
   useEffect(() => {
     if (!selectedRoom) return;
 
@@ -140,7 +173,6 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
     return () => unsubscribe();
   }, [selectedRoom]);
 
-  // Gửi tin nhắn
   const handleSendMessage = () => {
     if (!inputText.trim() || !selectedRoom || !currentUser) return;
     const roomRef = ref(db, `messages/${selectedRoom.id}`);
@@ -166,7 +198,6 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
     }
   };
 
-  // Xóa lịch sử chat
   const handleClearHistory = () => {
     if (!selectedRoom) return;
 
@@ -192,17 +223,20 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
 
   const handleBack = () => {
     setSelectedRoom(null);
+    if (setBottomBarHidden) {
+      setBottomBarHidden(false);
+    }
     if (onClearTarget) onClearTarget();
+    if (onToggleDetail) onToggleDetail(false);
   };
 
-  // ================= MÀN HÌNH DANH SÁCH CUỘC TRÒ CHUYỆN =================
   if (!selectedRoom) {
     return (
       <View style={[styles.container, { backgroundColor: bgColor }]}>
         <FlatList
           data={chatList}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: 12 }}
+          contentContainerStyle={{ padding: 12, paddingBottom: insets.bottom + 12 }}
           renderItem={({ item }) => (
             <TouchableOpacity style={styles.chatListItem} onPress={() => setSelectedRoom(item)}>
               {item.isBot ? (
@@ -233,10 +267,11 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
     );
   }
 
-  // ================= MÀN HÌNH CHAT CHI TIẾT =================
+  // Tính toán khoảng offset chuẩn xác cho Android khi bật/tắt phím
+  const androidOffset = insets.top + 60; 
+
   return (
-    <View style={[styles.container, { backgroundColor: bgColor }]}>
-      {/* Header nhỏ gọn */}
+    <View style={[styles.container, { backgroundColor: bgColor, paddingTop: insets.top }]}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
           <Text style={styles.backBtnText}>‹ Quay lại</Text>
@@ -264,11 +299,10 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
         </TouchableOpacity>
       </View>
 
-      {/* Khung tin nhắn + Bàn phím */}
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : androidOffset}
       >
         <FlatList
           ref={flatListRef}
@@ -321,8 +355,16 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
           }}
         />
 
-        {/* Thanh Input dính sát mép dưới */}
-        <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+        <View
+          style={[
+            styles.inputContainer,
+            {
+              paddingBottom: isKeyboardVisible
+                ? 8
+                : Math.max(insets.bottom, 12),
+            },
+          ]}
+        >
           <TextInput
             style={styles.input}
             placeholder="Nhập tin nhắn..."
@@ -340,15 +382,14 @@ export default function ChatTab({ targetUser, onClearTarget }: ChatTabProps) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  keyboardView: { flex: 1 },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderColor: '#EEEEEE',
@@ -369,7 +410,6 @@ const styles = StyleSheet.create({
   backBtn: { paddingVertical: 4, paddingRight: 8 },
   backBtnText: { color: '#FF4B4B', fontSize: 14, fontWeight: '600' },
   clearBtn: { padding: 4 },
-
   chatListItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -393,19 +433,10 @@ const styles = StyleSheet.create({
   chatListItemName: { fontSize: 15, fontWeight: 'bold', color: '#333' },
   chatListItemSub: { fontSize: 12, color: '#888', marginTop: 2 },
   arrowText: { fontSize: 18, color: '#CCC' },
-
-  messageList: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  messageRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    marginBottom: 8,
-  },
+  messageList: { paddingHorizontal: 12, paddingVertical: 8 },
+  messageRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 8 },
   userRow: { justifyContent: 'flex-end' },
   otherRow: { justifyContent: 'flex-start' },
-
   msgAvatar: { width: 26, height: 26, borderRadius: 13, marginHorizontal: 4 },
   msgAvatarCircle: {
     width: 26,
@@ -417,16 +448,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   msgAvatarText: { color: '#FFF', fontWeight: 'bold', fontSize: 11 },
-
-  messageBubble: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-  },
-  userBubble: {
-    backgroundColor: '#FF4B4B',
-    borderBottomRightRadius: 2,
-  },
+  messageBubble: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16 },
+  userBubble: { backgroundColor: '#FF4B4B', borderBottomRightRadius: 2 },
   otherBubble: {
     backgroundColor: '#FFFFFF',
     borderBottomLeftRadius: 2,
@@ -436,7 +459,6 @@ const styles = StyleSheet.create({
   userText: { color: '#FFFFFF', fontSize: 14, lineHeight: 18 },
   otherText: { color: '#212529', fontSize: 14, lineHeight: 18 },
   timeText: { fontSize: 9, color: '#A0A0A0', marginTop: 2, marginHorizontal: 2 },
-
   inputContainer: {
     flexDirection: 'row',
     paddingHorizontal: 10,
@@ -452,7 +474,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 6,
-    height: 36,
+    minHeight: 38,
+    maxHeight: 100,
     fontSize: 14,
     color: '#333',
   },

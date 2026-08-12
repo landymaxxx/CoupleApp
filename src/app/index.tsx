@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { onAuthStateChanged } from 'firebase/auth';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { ThemeProvider } from '../context/ThemeContext';
 import { auth } from '../../firebase';
@@ -30,7 +30,7 @@ export default function Page() {
     );
   }
 
-  // Đã đăng nhập -> Vào App chính
+  // Đã đăng nhập -> Hiện MainApp bên trong Tab Home
   if (user) {
     return (
       <ThemeProvider>
@@ -39,7 +39,7 @@ export default function Page() {
     );
   }
 
-  // Chưa đăng nhập -> Hiện Đăng nhập hoặc Đăng ký
+  // Chưa đăng nhập -> Hiện màn hình Đăng nhập / Đăng ký
   return authScreen === 'login' ? (
     <LoginScreen onSwitch={() => setAuthScreen('register')} />
   ) : (
@@ -48,5 +48,10 @@ export default function Page() {
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF' },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
 });

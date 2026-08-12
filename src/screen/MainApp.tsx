@@ -1,6 +1,6 @@
 // @ts-nocheck
 import * as ImagePicker from 'expo-image-picker';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useState } from 'react'; // 👈 Thêm useLayoutEffect
 import {
   ActivityIndicator,
   Alert,
@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { onValue, ref, remove, update } from 'firebase/database';
 import { auth, db } from '../../firebase';
@@ -42,8 +43,12 @@ interface Friend {
 
 export default function MainApp() {
   const { bgColor } = useTheme();
+  const navigation = useNavigation();
 
   const [activeTab, setActiveTab] = useState<'chat' | 'draw'>('chat');
+  
+  // State ẩn/hiện Top Header & Bottom Tabs khi vào Chat chi tiết hoặc Mở bảng vẽ
+  const [isDetailMode, setIsDetailMode] = useState(false);
 
   // State quản lý các Modal
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -58,6 +63,38 @@ export default function MainApp() {
   const [updatingPfp, setUpdatingPfp] = useState(false);
 
   const currentUser = auth.currentUser;
+
+  // 🛠️ Tự động ẨN/HIỆN thanh Bottom Navigation Bar (AppTabs)
+  useLayoutEffect(() => {
+    // Duyệt ngược lên các parent navigator để tìm đúng Tab Navigator
+    let tabParent = navigation.getParent();
+    while (tabParent && tabParent.getState()?.type !== 'tab') {
+      const nextParent = tabParent.getParent();
+      if (!nextParent) break;
+      tabParent = nextParent;
+    }
+
+    const targetNav = tabParent || navigation;
+
+    if (isDetailMode) {
+      targetNav.setOptions({
+        tabBarStyle: {
+          display: 'none',
+          height: 0,
+        },
+      });
+    } else {
+      targetNav.setOptions({
+        tabBarStyle: undefined,
+      });
+    }
+
+    return () => {
+      targetNav.setOptions({
+        tabBarStyle: undefined,
+      });
+    };
+  }, [isDetailMode, navigation]);
 
   // 🧮 Hàm tính số ngày bên nhau
   const calculateDaysTogether = (startDateStr?: string) => {
@@ -229,43 +266,45 @@ export default function MainApp() {
       style={[styles.container, { backgroundColor: bgColor }]}
       edges={['top', 'left', 'right']}
     >
-      {/* Header chính */}
-      <View style={styles.appHeader}>
-        <View style={styles.headerTitleGroup}>
-          <Text style={styles.appTitle}>Landy & Panda 💕</Text>
-          {partnerData && (
-            <Text style={styles.headerDaysCount}>❤️ {daysTogether} ngày bên nhau</Text>
-          )}
-        </View>
-
-        <View style={styles.headerRightActions}>
-          <TouchableOpacity
-            style={styles.searchIconButton}
-            onPress={() => setIsSearchVisible(true)}
-          >
-            <Text style={styles.searchIconText}>🔍</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.pfpButton}
-            onPress={() => setIsModalVisible(true)}
-          >
-            {userData?.pfp ? (
-              <Image source={{ uri: userData.pfp }} style={styles.headerAvatar} />
-            ) : (
-              <View style={styles.headerAvatarPlaceholder}>
-                <Text style={styles.avatarLetter}>
-                  {userData?.username
-                    ? userData.username.charAt(0).toUpperCase()
-                    : '👤'}
-                </Text>
-              </View>
+      {/* 1. Header chính - Chỉ hiển thị khi KHÔNG ở trong phòng chat chi tiết hoặc bảng vẽ */}
+      {!isDetailMode && (
+        <View style={styles.appHeader}>
+          <View style={styles.headerTitleGroup}>
+            <Text style={styles.appTitle}>Landy & Panda 💕</Text>
+            {partnerData && (
+              <Text style={styles.headerDaysCount}>❤️ {daysTogether} ngày bên nhau</Text>
             )}
-          </TouchableOpacity>
-        </View>
-      </View>
+          </View>
 
-      {/* Thanh chuyển Tab */}
+          <View style={styles.headerRightActions}>
+            <TouchableOpacity
+              style={styles.searchIconButton}
+              onPress={() => setIsSearchVisible(true)}
+            >
+              <Text style={styles.searchIconText}>🔍</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.pfpButton}
+              onPress={() => setIsModalVisible(true)}
+            >
+              {userData?.pfp ? (
+                <Image source={{ uri: userData.pfp }} style={styles.headerAvatar} />
+              ) : (
+                <View style={styles.headerAvatarPlaceholder}>
+                  <Text style={styles.avatarLetter}>
+                    {userData?.username
+                      ? userData.username.charAt(0).toUpperCase()
+                      : '👤'}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* 2. Thanh chuyển Tab */}
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={[
@@ -302,14 +341,18 @@ export default function MainApp() {
         </TouchableOpacity>
       </View>
 
-      {/* Nội dung Tab đang chọn */}
+      {/* 3. Nội dung Tab đang chọn */}
       {activeTab === 'chat' ? (
         <ChatTab
           targetUser={targetChatUser}
           onClearTarget={() => setTargetChatUser(null)}
+          onToggleDetail={setIsDetailMode}
         />
       ) : (
-        <DrawTab loverId={userData?.loverId} />
+        <DrawTab
+          loverId={userData?.loverId}
+          onToggleDetail={setIsDetailMode}
+        />
       )}
 
       {/* MODAL THÔNG TIN TÀI KHOẢN & BẠN ĐỜI */}
