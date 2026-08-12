@@ -23,7 +23,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22 # Cập nhật lên Node 22 để tránh cảnh báo deprecation
+          node-version: 22
           cache: 'npm'
 
       # 3. Cài đặt JS Dependencies
@@ -32,36 +32,38 @@ jobs:
 
       # 4. Cài đặt Java JDK 17
       - name: Setup Java JDK
-        uses: actions/setup-java@v5 # Đã nâng cấp lên v5
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # --- ĐÃ XÓA BƯỚC SETUP ANDROID SDK VÀ FORCE LICENSE Ở ĐÂY ---
-      # (Môi trường ubuntu-latest đã có sẵn Android SDK và đã accept license, không cần chạy lại)
+      # 5. Tự động chấp nhận toàn bộ Android SDK Licenses
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      # 5. Prebuild để tạo thư mục native /android (Không cần google-services.json native)
+      # 6. Prebuild để tạo thư mục native /android
       - name: Prebuild Android project
         run: npx expo prebuild --platform android --no-install
 
-      # 6. Setup ccache tối ưu thời gian compile C++/Native modules (Reanimated, Canvas, v.v.)
+      # 7. Setup ccache tối ưu thời gian compile C++/Native modules
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
           key: ${{ runner.os }}-ccache-android
           max-size: 500M
 
-      # 7. Setup & Cache Gradle
+      # 8. Setup & Cache Gradle
       - name: Setup Gradle Cache
         uses: gradle/actions/setup-gradle@v3
         with:
           cache-read-only: false
 
-      # 8. Cấp quyền thực thi cho gradlew
+      # 9. Cấp quyền thực thi cho gradlew
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 9. Build file APK Release (Chỉ build kiến trúc arm64-v8a để tăng tốc độ CI)
+      # 10. Build file APK Release (Chỉ build kiến trúc arm64-v8a)
       - name: Build Android Release APK
         env:
           NDK_CCACHE: ccache
@@ -73,7 +75,7 @@ jobs:
             --no-daemon \
             --build-cache
 
-      # 10. Upload file APK sau khi build thành công
+      # 11. Upload file APK sau khi build thành công
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
