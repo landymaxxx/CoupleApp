@@ -17,10 +17,6 @@ import { signOut } from 'firebase/auth';
 import { onValue, ref, remove, update } from 'firebase/database';
 import { auth, db } from '../../firebase';
 
-// 📲 Import cho Widget Home Screen (Giữ nguyên)
-import { requestWidgetUpdate } from 'react-native-android-widget';
-import { LoverWidget } from '../widgets/LoverWidget';
-
 // Components & Context
 import ThemePicker from '../components/ThemePicker';
 import { useTheme } from '../context/ThemeContext';
@@ -145,35 +141,6 @@ export default function MainApp() {
       unsubscribeFriends();
       if (unsubscribePartner) unsubscribePartner();
       if (unsubscribeUsers) unsubscribeUsers();
-    };
-  }, [currentUser?.uid]);
-
-  // 🔥 2. Lắng nghe hình vẽ được gửi tới để cập nhật Widget Widget Màn hình chính
-  useEffect(() => {
-    if (!currentUser?.uid) return;
-
-    const myLoverDrawingRef = ref(db, `loverDrawings/${currentUser.uid}`);
-    const unsubscribeLoverDrawing = onValue(myLoverDrawingRef, async (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        if (data?.imageUri) {
-          try {
-            await requestWidgetUpdate({
-              widgetName: 'LoverWidget',
-              renderWidget: () => (
-                <LoverWidget imageUri={data.imageUri} senderName={data.senderName} />
-              ),
-              widgetNotFound: () => {},
-            });
-          } catch (e) {
-            console.log('Cập nhật widget thất bại:', e);
-          }
-        }
-      }
-    });
-
-    return () => {
-      unsubscribeLoverDrawing();
     };
   }, [currentUser?.uid]);
 

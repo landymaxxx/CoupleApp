@@ -5,16 +5,9 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { ThemeProvider } from '../context/ThemeContext';
 import { auth } from '../../firebase';
 
-// 📲 Import cho Widget (GIỮ NGUYÊN - Đây là Widget Android, không phải FCM)
-import { registerWidgetTaskHandler } from 'react-native-android-widget';
-import { widgetTaskHandler } from '../widgets/widget-task-handler';
-
 import LoginScreen from '../screen/LoginScreen';
 import MainApp from '../screen/MainApp';
 import RegisterScreen from '../screen/RegisterScreen';
-
-// 📌 1. Đăng ký Widget Task Handler ngay khi ứng dụng khởi chạy
-registerWidgetTaskHandler(widgetTaskHandler);
 
 export default function Page() {
   const [user, setUser] = useState(null);

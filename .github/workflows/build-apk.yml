@@ -6,88 +6,60 @@ on:
       - main
   workflow_dispatch:
 
-# Tối ưu RAM cho Gradle & Bật Build Cache
 env:
+  # Tối ưu RAM cho Gradle & Bật Build Cache
   GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
 
 jobs:
   build:
+    name: Build APK
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Lấy source code từ repository
-      - name: Checkout repository
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Cài đặt Node.js & Cache npm
-      - name: Setup Node.js
+      - name: 🟢 Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20 # Đã hạ về 20 LTS - Bản ổn định nhất cho React Native/Expo hiện tại
           cache: 'npm'
 
-      # 3. Cài đặt JS Dependencies
-      - name: Install dependencies
+      - name: 📦 Install dependencies
         run: npm ci
 
-      # 4. Cài đặt Java JDK 17
-      - name: Setup Java JDK
-        uses: actions/setup-java@v5
+      - name: ☕ Setup Java JDK
+        uses: actions/setup-java@v4 # Cập nhật lên v4 chuẩn nhất hiện tại
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # BƯỚC 5 CŨ (setup-android) ĐÃ ĐƯỢC LƯỢC BỎ ĐỂ TRÁNH LỖI KẸT LICENSE
-      # Môi trường ubuntu-latest của GitHub đã có sẵn Android SDK.
+      - name: 🐘 Setup Gradle Cache
+        uses: gradle/actions/setup-gradle@v4 # Cập nhật lên v4
 
-      # 5. Setup & Cache Gradle (Đưa lên trước prebuild để tối ưu)
-      - name: Setup Gradle Cache
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          cache-read-only: false
-
-      # 6. Tạo file google-services.json từ GitHub Secret
-      - name: Decode google-services.json
-        env:
-          GOOGLE_SERVICES_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON }}
-        run: |
-          if [ -n "$GOOGLE_SERVICES_BASE64" ]; then
-            echo "$GOOGLE_SERVICES_BASE64" | base64 --decode > google-services.json
-            echo "Successfully created google-services.json"
-          else
-            echo "Warning: GOOGLE_SERVICES_JSON secret is empty!"
-          fi
-
-      # 7. Prebuild để tạo thư mục native /android (Expo sẽ tự đưa google-services.json vào đúng chỗ)
-      - name: Prebuild Android project
+      - name: 🏗️ Prebuild Android project
         run: npx expo prebuild --platform android --no-install
 
-      # 8. Setup ccache tối ưu thời gian compile C++/Native modules
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1
+      - name: ⚡ Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ runner.os }}-ccache-android
           max-size: 500M
 
-      # 9. Cấp quyền thực thi cho gradlew
-      - name: Make gradlew executable
-        run: chmod +x android/gradlew
-
-      # 10. Build file APK Release (Chỉ build kiến trúc arm64-v8a)
-      - name: Build Android Release APK
+      - name: 🔨 Build Android Release APK
         env:
           NDK_CCACHE: ccache
         run: |
           cd android
+          chmod +x gradlew
           ./gradlew assembleRelease \
             -PreactNativeArchitectures=arm64-v8a \
             -x lintVitalRelease \
-            --no-daemon \
-            --build-cache
+            --no-daemon
 
-      # 11. Upload file APK sau khi build thành công
-      - name: Upload APK Artifact
+      - name: 🚀 Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-arm64-release
           path: android/app/build/outputs/apk/release/*.apk
+          retention-days: 7 # Tự động xóa file trên GitHub sau 7 ngày để đỡ tốn dung lượng

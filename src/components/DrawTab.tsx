@@ -1,8 +1,6 @@
 // @ts-nocheck
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
   GestureResponderEvent,
   PanResponder,
   StyleSheet,
@@ -11,7 +9,6 @@ import {
   View,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { captureRef } from 'react-native-view-shot';
 import { get, onValue, ref, set } from 'firebase/database';
 import { auth, db } from '../../firebase';
 import { useTheme } from '../context/ThemeContext';
@@ -24,7 +21,6 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
   const { bgColor } = useTheme();
   const [paths, setPaths] = useState<string[]>([]);
   const [currentPath, setCurrentPath] = useState<string>('');
-  const [isSending, setIsSending] = useState<boolean>(false);
   const currentUser = auth.currentUser;
 
   const canvasRef = useRef<View>(null);
@@ -110,55 +106,6 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
     }
   };
 
-  // 📲 Gửi hình vẽ tới Widget Màn hình chính của Nửa kia
-  const handleSendToLoverLockscreen = async () => {
-    if (!currentUser) return;
-    if (paths.length === 0) {
-      Alert.alert('Thông báo', 'Bạn chưa vẽ hình nào để gửi!');
-      return;
-    }
-
-    setIsSending(true);
-    try {
-      const myUserSnap = await get(ref(db, `users/${currentUser.uid}`));
-      const currentLoverId = myUserSnap.val()?.loverId;
-      const myUsername = myUserSnap.val()?.username || 'Bạn đời';
-
-      if (!currentLoverId) {
-        Alert.alert('Chưa có Bạn Đời', 'Bạn cần kết bạn đời trước để dùng tính năng này!');
-        setIsSending(false);
-        return;
-      }
-
-      // 📸 1. Chụp vùng vẽ và resize về 300x300px để tối ưu dung lượng Widget
-      let imageBase64 = '';
-      if (canvasRef.current) {
-        imageBase64 = await captureRef(canvasRef, {
-          format: 'jpg',
-          quality: 0.5,
-          width: 300,
-          height: 300,
-          result: 'base64',
-        });
-      }
-
-      const imageUri = `data:image/jpeg;base64,${imageBase64}`;
-
-      // 💾 2. Lưu hình vẽ vào Firebase Database của nửa kia
-      await set(ref(db, `loverDrawings/${currentLoverId}`), {
-        imageUri,
-        senderName: myUsername,
-        timestamp: Date.now(),
-      });
-
-      Alert.alert('Thành công 💕', 'Hình vẽ đã được gửi tới Widget của bạn đời!');
-    } catch (error: any) {
-      Alert.alert('Lỗi', error.message || 'Không thể gửi hình vẽ.');
-    } finally {
-      setIsSending(false);
-    }
-  };
-
   return (
     <View style={[styles.container, { backgroundColor: bgColor }]}>
       {/* Header thanh công cụ vẽ */}
@@ -167,18 +114,6 @@ const DrawTab: React.FC<DrawTabProps> = ({ loverId }) => {
           {loverId ? 'Bảng Vẽ Đôi Realtime 💕' : 'Bảng Vẽ Cá Nhân 👤'}
         </Text>
         <View style={styles.actionButtons}>
-          <TouchableOpacity
-            style={[styles.btn, styles.sendLoverBtn, isSending && styles.disabledBtn]}
-            onPress={handleSendToLoverLockscreen}
-            disabled={isSending}
-          >
-            {isSending ? (
-              <ActivityIndicator size="small" color="#FF4B4B" />
-            ) : (
-              <Text style={styles.sendLoverText}>📲 Gửi bạn đời</Text>
-            )}
-          </TouchableOpacity>
-
           <TouchableOpacity style={[styles.btn, styles.undoBtn]} onPress={handleUndo}>
             <Text style={styles.undoBtnText}>↩ Hoàn tác</Text>
           </TouchableOpacity>
@@ -240,13 +175,10 @@ const styles = StyleSheet.create({
   drawTitle: { fontSize: 14, fontWeight: 'bold', color: '#333' },
   actionButtons: { flexDirection: 'row', gap: 6, alignItems: 'center' },
   btn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  sendLoverBtn: { backgroundColor: '#FFEAEA' },
-  sendLoverText: { color: '#FF4B4B', fontWeight: 'bold', fontSize: 12 },
   undoBtn: { backgroundColor: '#E0E0E0' },
   undoBtnText: { color: '#333', fontWeight: '600', fontSize: 12 },
   clearBtn: { backgroundColor: '#FF4B4B' },
   clearBtnText: { color: '#FFF', fontWeight: '600', fontSize: 12 },
-  disabledBtn: { opacity: 0.6 },
   canvasContainer: { flex: 1, backgroundColor: '#FFFFFF' },
   svg: { flex: 1 },
 });

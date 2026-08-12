@@ -13,7 +13,6 @@
     },
     "android": {
       "package": "com.landyandpanda.loveapp",
-      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -34,21 +33,6 @@
           "backgroundColor": "#208AEF",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
-        }
-      ],
-      [
-        "react-native-android-widget",
-        {
-          "widgets": [
-            {
-              "name": "LoverWidget",
-              "label": "Hình vẽ từ Nửa Kia",
-              "minWidth": "180dp",
-              "minHeight": "180dp",
-              "description": "Xem trực tiếp bức vẽ mới nhất từ nửa kia gửi tới",
-              "updatePeriodMillis": 3600000
-            }
-          ]
         }
       ]
     ],
