@@ -42,28 +42,40 @@ jobs:
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      # 6. Prebuild để tạo thư mục native /android
+      # 6. Tạo file google-services.json từ GitHub Secret
+      - name: Decode google-services.json
+        env:
+          GOOGLE_SERVICES_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_BASE64" ]; then
+            echo "$GOOGLE_SERVICES_BASE64" | base64 --decode > google-services.json
+            echo "Successfully created google-services.json"
+          else
+            echo "Warning: GOOGLE_SERVICES_JSON secret is empty!"
+          fi
+
+      # 7. Prebuild để tạo thư mục native /android
       - name: Prebuild Android project
         run: npx expo prebuild --platform android --no-install
 
-      # 7. Setup ccache tối ưu thời gian compile C++/Native modules
+      # 8. Setup ccache tối ưu thời gian compile C++/Native modules
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
           key: ${{ runner.os }}-ccache-android
           max-size: 500M
 
-      # 8. Setup & Cache Gradle
+      # 9. Setup & Cache Gradle
       - name: Setup Gradle Cache
         uses: gradle/actions/setup-gradle@v3
         with:
           cache-read-only: false
 
-      # 9. Cấp quyền thực thi cho gradlew
+      # 10. Cấp quyền thực thi cho gradlew
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 10. Build file APK Release (Chỉ build kiến trúc arm64-v8a)
+      # 11. Build file APK Release (Chỉ build kiến trúc arm64-v8a)
       - name: Build Android Release APK
         env:
           NDK_CCACHE: ccache
@@ -75,7 +87,7 @@ jobs:
             --no-daemon \
             --build-cache
 
-      # 11. Upload file APK sau khi build thành công
+      # 12. Upload file APK sau khi build thành công
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
