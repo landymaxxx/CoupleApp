@@ -37,17 +37,16 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 5. Cài đặt Android SDK chuẩn (Thay thế cho lệnh thủ công bị lỗi kẹt log)
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # BƯỚC 5 CŨ (setup-android) ĐÃ ĐƯỢC LƯỢC BỎ ĐỂ TRÁNH LỖI KẸT LICENSE
+      # Môi trường ubuntu-latest của GitHub đã có sẵn Android SDK.
 
-      # 6. Setup & Cache Gradle (Đưa lên trước prebuild để tối ưu)
+      # 5. Setup & Cache Gradle (Đưa lên trước prebuild để tối ưu)
       - name: Setup Gradle Cache
         uses: gradle/actions/setup-gradle@v3
         with:
           cache-read-only: false
 
-      # 7. Tạo file google-services.json từ GitHub Secret
+      # 6. Tạo file google-services.json từ GitHub Secret
       - name: Decode google-services.json
         env:
           GOOGLE_SERVICES_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON }}
@@ -59,22 +58,22 @@ jobs:
             echo "Warning: GOOGLE_SERVICES_JSON secret is empty!"
           fi
 
-      # 8. Prebuild để tạo thư mục native /android (Expo sẽ tự đưa google-services.json vào đúng chỗ)
+      # 7. Prebuild để tạo thư mục native /android (Expo sẽ tự đưa google-services.json vào đúng chỗ)
       - name: Prebuild Android project
         run: npx expo prebuild --platform android --no-install
 
-      # 9. Setup ccache tối ưu thời gian compile C++/Native modules
+      # 8. Setup ccache tối ưu thời gian compile C++/Native modules
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
           key: ${{ runner.os }}-ccache-android
           max-size: 500M
 
-      # 10. Cấp quyền thực thi cho gradlew
+      # 9. Cấp quyền thực thi cho gradlew
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 11. Build file APK Release (Chỉ build kiến trúc arm64-v8a)
+      # 10. Build file APK Release (Chỉ build kiến trúc arm64-v8a)
       - name: Build Android Release APK
         env:
           NDK_CCACHE: ccache
@@ -86,7 +85,7 @@ jobs:
             --no-daemon \
             --build-cache
 
-      # 12. Upload file APK sau khi build thành công
+      # 11. Upload file APK sau khi build thành công
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
