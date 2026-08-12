@@ -37,11 +37,17 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 5. Cài đặt Android SDK (đã tự chấp nhận licenses, không cần bước thủ công nữa)
+      # 5. Cài đặt Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
           accept-android-sdk-licenses: true
+
+      # 5.1 Tự động chấp nhận toàn bộ Android SDK Licenses còn thiếu
+      - name: Accept All Android SDK Licenses
+        run: |
+          SDKMANAGER=$(find $ANDROID_HOME -name sdkmanager | head -n 1)
+          yes | $SDKMANAGER --licenses || true
 
       # 6. Prebuild để sinh ra thư mục native /android
       - name: Prebuild Android project
