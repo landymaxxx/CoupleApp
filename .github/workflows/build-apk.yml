@@ -37,38 +37,31 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 5. Cài đặt Android SDK & Tự động chấp nhận License
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          accept-android-sdk-licenses: true
+      # --- ĐÃ XÓA BƯỚC SETUP ANDROID SDK VÀ FORCE LICENSE Ở ĐÂY ---
+      # (Môi trường ubuntu-latest đã có sẵn Android SDK và đã accept license, không cần chạy lại)
 
-      # 5.1 Ép hệ thống chấp nhận tất cả license của Android SDK bằng command line
-      - name: Force Accept Android SDK Licenses
-        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-
-      # 6. Prebuild để tạo thư mục native /android (Không cần google-services.json native)
+      # 5. Prebuild để tạo thư mục native /android (Không cần google-services.json native)
       - name: Prebuild Android project
         run: npx expo prebuild --platform android --no-install
 
-      # 7. Setup ccache tối ưu thời gian compile C++/Native modules (Reanimated, Canvas, v.v.)
+      # 6. Setup ccache tối ưu thời gian compile C++/Native modules (Reanimated, Canvas, v.v.)
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
           key: ${{ runner.os }}-ccache-android
           max-size: 500M
 
-      # 8. Setup & Cache Gradle
+      # 7. Setup & Cache Gradle
       - name: Setup Gradle Cache
         uses: gradle/actions/setup-gradle@v3
         with:
           cache-read-only: false
 
-      # 9. Cấp quyền thực thi cho gradlew
+      # 8. Cấp quyền thực thi cho gradlew
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      # 10. Build file APK Release (Chỉ build kiến trúc arm64-v8a để tăng tốc độ CI)
+      # 9. Build file APK Release (Chỉ build kiến trúc arm64-v8a để tăng tốc độ CI)
       - name: Build Android Release APK
         env:
           NDK_CCACHE: ccache
@@ -80,7 +73,7 @@ jobs:
             --no-daemon \
             --build-cache
 
-      # 11. Upload file APK sau khi build thành công
+      # 10. Upload file APK sau khi build thành công
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
